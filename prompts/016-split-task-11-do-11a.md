@@ -11,7 +11,12 @@ okay, due to the limit rate is closer, break down task 11 to smaller ones, Pls d
 ## Outcome
 
 - Plan amended (D-023): Task 11 → **11a** (scaffold, Tailwind, shadcn/Radix, root wiring, Vite proxy, plain-fetch API connection check), **11b** (Redux/RTK Query, deferred), **11c** (switcher + shell, deferred).
-- 11a executed subagent-driven (implementer, then task reviewer).
+- 11a executed subagent-driven: the implementer (sonnet) built it, then a task reviewer (sonnet) **approved it with no Critical or Important issues**.
+  - Tooling was checked first: create-vite 9.3.0, shadcn 4.22.1 (`init -t vite -b radix -d -y`, non-interactive). Radix confirmed (`import { Slot } from "radix-ui"`).
+  - TypeScript 7 rejects `baseUrl`, so the `@/*` alias uses `paths` only.
+  - The controller checked the unusual `cn` dependency (R-020): it's legitimate.
+  - Real check: `curl localhost:5173/api/me` through the Vite proxy returned Anna. Evidence: `docs/evidence/m3-web-connection.md`.
+- Redux, RTK Query, the switcher and the shell are deferred until the user reviews 11b and 11c.
 
 ## Decisions
 
@@ -19,4 +24,4 @@ okay, due to the limit rate is closer, break down task 11 to smaller ones, Pls d
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`aa0b23f` (plan split) · `96d8e66` (11a)
