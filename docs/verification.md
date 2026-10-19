@@ -66,4 +66,4 @@ Then: 10/10 and 8/8 consecutive green runs, plus a new error-state test. See R-0
 
 - The user created a Slack Incoming Webhook. It's stored only at runtime (temp DB) and never committed. `SLACK_DRY_RUN=0` is set in the git-ignored `.env`.
 - An isolated API instance (`PORT=3005`, temp DB) created a slack channel as user 1. The API response showed the webhook **masked** (`https://hooks.slack.com/…/AGC2`). Then `POST /api/channels/4/test` returned `{"ok":true}` at 23:33:54Z, with **no** dry-run log line, so Slack answered HTTP 2xx to a real POST.
-- **Arrival in the channel is confirmed by the user, not the agent** (there's no Slack read access). Status: _awaiting the user's confirmation_.
+- **Arrival in the channel is confirmed by the user, not the agent** (there's no Slack read access). Status: **verified.** The user confirmed the message arrived in their Slack channel (prompt 028).

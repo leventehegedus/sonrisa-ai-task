@@ -127,7 +127,7 @@ Sources: [`task-brief.md`](task-brief.md) (the assignment) and the PM brief quot
 | Notified when **something important happens** | ✅ | Region-weighted score + critical override; every alert shows *why* · Part A §5 · design §8 |
 | **Breaking news, market movements, natural disasters** | ✅ | RSS (telex, hvg, BBC) · CoinGecko (BTC/ETH) · GDACS (quakes, floods, cyclones, fires, droughts) · Admin → Sources |
 | Works for **email** | ✅ | Email adapter: JSON outbox by default, real SMTP via `SMTP_URL` / `.env`. **Real Gmail delivery verified 2026-10-20** (see verification.md) · Part A §5–6 |
-| Works for **Slack** | ⚠️ built, not sent for real | Slack adapter with timeout, escaping and masking; tested in dry-run and with mocked requests; the failure path is real (§8). **Real delivery is unverified** |
+| Works for **Slack** | ✅ | Slack adapter with timeout, escaping and masking. **Real delivery verified 2026-10-20**: Slack accepted the post and the user confirmed it arrived (see verification.md) |
 | **Flexible: more channels later** | ✅ (design) | `ChannelAdapter` interface + registry: one file plus one line; no DB constraint on type · design §10 · verification marks it "partial" (no third adapter written) |
 | **Admin view** | ✅ | Admin tab: Users, Rules, Events, Deliveries (+ retry, breakdown), Sources (toggle, interval, poll now), Inject event |
 
@@ -150,5 +150,5 @@ Sources: [`task-brief.md`](task-brief.md) (the assignment) and the PM brief quot
 
 ### B3. Open items before submitting
 1. **Push to GitHub.** This is the only hard blocker.
-2. Optional: verify real Slack with a real webhook (Part A §8 with a real URL), then update `verification.md`.
+2. ~~Optional: verify real Slack.~~ Done: verified 2026-10-20.
 3. ~~Optional: real SMTP send.~~ Done: real Gmail delivery verified 2026-10-20.
