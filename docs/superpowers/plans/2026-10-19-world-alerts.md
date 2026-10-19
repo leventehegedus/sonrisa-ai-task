@@ -315,7 +315,7 @@ Each branch ends with: `npm test` green → a code-review subagent (`superpowers
   - `GET /api/admin/users`, `/rules`
   - `GET /api/admin/events?limit=` (default 100, max 500)
   - `GET /api/admin/deliveries?status=`, and `POST /api/admin/deliveries/:id/retry`, which sets `pending`, `attempts 0`, `next_attempt_at now`, and `409` if it isn't `failed`
-  - `GET /api/admin/sources`, `PATCH /api/admin/sources/:id` with `{ enabled?, poll_interval_s? (60..86400) }`, and `POST /api/admin/sources/:id/poll`, which calls `pollSource` and returns its result
+  - `GET /api/admin/sources`, `PATCH /api/admin/sources/:id` with `{ enabled?, pollIntervalS? (60..86400) }` (renamed from `poll_interval_s` after the M2 review, D-020), and `POST /api/admin/sources/:id/poll`, which calls `pollSource` and returns its result
   - `POST /api/admin/events`, which takes `ManualEventInput`, calls `ingest([manualEvent(...)])`, and returns `{ event, deliveriesCreated }`
 - `main.ts`: `openDb(process.env.DB_PATH ?? 'data/alerts.db')`, `seed`, `createChannelRegistry` from env (`SMTP_URL`, `SLACK_DRY_RUN` default `'1'`, outbox `data/outbox`), `buildApp`, `startScheduler`, then listen on `PORT ?? 3000`.
 

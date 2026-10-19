@@ -1,0 +1,1123 @@
+fff5f8a feat(api): admin routes, manual inject, server entry
+708ba70 feat(api): fastify app, header identity, user routes, seed
+0350486 docs: progress summary after M1, log prompts 011-012, R-017 correction, D-019
+ docs/ai-review-log.md                              |   1 +
+ docs/decisions.md                                  |   1 +
+ docs/evidence/m2-api-smoke.md                      |  66 ++++
+ docs/progress-summary.md                           | 157 ++++++++
+ .../M2-api/interrupted-task-9-partial.patch        | 419 +++++++++++++++++++++
+ prompts/010-execute-subagent-driven-merge.md       |  12 +-
+ prompts/011-interruption-and-status.md             |  26 ++
+ prompts/012-progress-summary-and-continue.md       |  25 ++
+ prompts/README.md                                  |   4 +-
+ server/package.json                                |   3 +-
+ server/src/db/rows.ts                              |  21 +-
+ server/src/db/seed.ts                              |  36 ++
+ server/src/http/admin-routes.ts                    |  88 +++++
+ server/src/http/app.ts                             |  37 ++
+ server/src/http/auth.ts                            |  28 ++
+ server/src/http/user-routes.ts                     | 165 ++++++++
+ server/src/main.ts                                 |  38 ++
+ server/test/api-admin.test.ts                      | 206 ++++++++++
+ server/test/api-user.test.ts                       | 246 ++++++++++++
+ server/test/seed.test.ts                           |  58 +++
+ 20 files changed, 1633 insertions(+), 4 deletions(-)
+diff --git a/docs/evidence/m2-api-smoke.md b/docs/evidence/m2-api-smoke.md
+new file mode 100644
+index 0000000..8a68a68
+--- /dev/null
++++ b/docs/evidence/m2-api-smoke.md
+@@ -0,0 +1,66 @@
++# M2 API smoke check (2026-10-19)
++
++Real server, real network, fresh temp DB. Run from the repo root on branch `feat/api`.
++
++## Commands
++
++```sh
++T=$(mktemp -d)
++DB_PATH=$T/smoke.db PORT=3999 npm run start -w server > $T/server.log 2>&1 &
++sleep 15
++curl -s localhost:3999/api/me -H 'X-User-Id: 1'
++curl -s localhost:3999/api/admin/sources -H 'X-User-Id: 1'
++curl -s -X POST localhost:3999/api/admin/events -H 'X-User-Id: 1' -H 'content-type: application/json' \
++  -d '{"category":"disaster","title":"Smoke test: árvíz Budapest","country":"HU","severity":0.6}'
++sleep 11   # let one dispatcher tick (10 s) run
++curl -s localhost:3999/api/admin/deliveries -H 'X-User-Id: 1'
++curl -s -w ' %{http_code}' localhost:3999/api/admin/users -H 'X-User-Id: 2'
++pkill -TERM -f "tsx src/main.ts"
++```
++
++## Output (trimmed only where marked)
++
++`GET /api/me` (user 1):
++
++```json
++{"id":1,"name":"Anna","email":"anna@example.com","homeCountry":"HU","isAdmin":true}
++```
++
++`GET /api/admin/sources`, about 15 s after start. Every source has `lastPolledAt` set, `lastError: null`, and `baselineAt` set (the first successful poll is the baseline, so it creates no deliveries). Configs are shortened here as `…`:
++
++```json
++[{"id":1,"type":"gdacs","name":"GDACS","config":{},"enabled":true,"pollIntervalS":300,"lastPolledAt":"2026-10-19T18:41:41.684Z","lastError":null,"baselineAt":"2026-10-19T18:41:41.684Z"},
++ {"id":2,"type":"coingecko","name":"CoinGecko","config":{…},"enabled":true,"pollIntervalS":300,"lastPolledAt":"2026-10-19T18:41:41.837Z","lastError":null,"baselineAt":"2026-10-19T18:41:41.837Z"},
++ {"id":3,"type":"rss","name":"Telex","config":{…},"enabled":true,"pollIntervalS":300,"lastPolledAt":"2026-10-19T18:41:42.032Z","lastError":null,"baselineAt":"2026-10-19T18:41:42.032Z"},
++ {"id":4,"type":"rss","name":"HVG","config":{…},"enabled":true,"pollIntervalS":300,"lastPolledAt":"2026-10-19T18:41:42.121Z","lastError":null,"baselineAt":"2026-10-19T18:41:42.121Z"},
++ {"id":5,"type":"rss","name":"BBC World","config":{…},"enabled":true,"pollIntervalS":300,"lastPolledAt":"2026-10-19T18:41:42.247Z","lastError":null,"baselineAt":"2026-10-19T18:41:42.247Z"}]
++```
++
++`POST /api/admin/events` (HU, severity 0.6). Event id 363 means the baseline polls stored 362 real feed events first:
++
++```json
++{"event":{"id":363,"source":"manual","externalId":"manual:212fc3cf-f2a7-4167-9130-f98eb5886593","category":"disaster","title":"Smoke test: árvíz Budapest","summary":null,"url":null,"country":"HU","scope":"country","severity":0.6,"occurredAt":"2026-10-19T18:41:55.248Z","raw":{"category":"disaster","title":"Smoke test: árvíz Budapest","country":"HU","severity":0.6}},"deliveriesCreated":2}
++```
++
++`GET /api/admin/deliveries`, after one dispatcher tick. Anna and Bence (HU, importance 0.6 ≥ 0.5) each got one, and both are `sent` (email outbox mode, no `SMTP_URL`). Priya (NP) got none:
++
++```json
++[{"id":2,"status":"sent","attempts":1,"lastError":null,"createdAt":"2026-10-19T18:41:55.248Z","sentAt":"2026-10-19T18:42:00.898Z","channelId":2,"ruleId":2,"breakdown":{"severity":0.6,"proximity":1,"proximityReason":"home","override":false,"importance":0.6,"threshold":0.5,"fires":true},"event":{"id":363,"title":"Smoke test: árvíz Budapest","category":"disaster","country":"HU","scope":"country","url":null,"occurredAt":"2026-10-19T18:41:55.248Z"},"userId":2},
++ {"id":1,"status":"sent","attempts":1,"lastError":null,"createdAt":"2026-10-19T18:41:55.248Z","sentAt":"2026-10-19T18:42:00.898Z","channelId":1,"ruleId":1,"breakdown":{"severity":0.6,"proximity":1,"proximityReason":"home","override":false,"importance":0.6,"threshold":0.5,"fires":true},"event":{"id":363,"title":"Smoke test: árvíz Budapest","category":"disaster","country":"HU","scope":"country","url":null,"occurredAt":"2026-10-19T18:41:55.248Z"},"userId":1}]
++```
++
++`GET /api/admin/users` as Bence (non-admin):
++
++```
++{"error":"admin only"} 403
++```
++
++Server log:
++
++```
++[2026-10-19T18:41:40.903Z] World Alerts API on http://127.0.0.1:3999
++[2026-10-19T18:42:00.912Z] email (outbox) to=anna@example.com subject=[World Alerts] Smoke test: árvíz Budapest file=1792435320912-82bf9fd2-anna@example.com.json
++[2026-10-19T18:42:00.915Z] email (outbox) to=bence@example.com subject=[World Alerts] Smoke test: árvíz Budapest file=1792435320915-285a9347-bence@example.com.json
++```
++
++After `SIGTERM`, `pgrep -fl src/main.ts` printed nothing and nothing was listening on port 3999.
+diff --git a/server/package.json b/server/package.json
+index 2b2911f..37a0fc2 100644
+--- a/server/package.json
++++ b/server/package.json
+@@ -1,18 +1,19 @@
+ {
+   "name": "server",
+   "private": true,
+   "type": "module",
+   "scripts": {
+     "test": "vitest run",
+     "typecheck": "tsc --noEmit",
+-    "dev": "tsx watch src/index.ts"
++    "dev": "tsx watch src/main.ts",
++    "start": "tsx src/main.ts"
+   },
+   "dependencies": {
+     "better-sqlite3": "^13.0.3",
+     "fast-xml-parser": "^5.11.2",
+     "fastify": "^5.12.7",
+     "nodemailer": "^10.1.7",
+     "zod": "^4.6.7"
+   },
+   "devDependencies": {
+     "@types/better-sqlite3": "^9.6.0",
+diff --git a/server/src/db/rows.ts b/server/src/db/rows.ts
+index d451f20..4edec5d 100644
+--- a/server/src/db/rows.ts
++++ b/server/src/db/rows.ts
+@@ -1,21 +1,40 @@
+-import type { Category, EventRow, Rule, Scope, User } from '../types';
++import type { Category, DeliveryStatus, EventRow, Rule, Scope, ScoreBreakdown, User } from '../types';
+ 
+ // Raw SQL rows (snake_case, JSON as TEXT, booleans as 0/1) -> domain types.
+ export const rowToUser = (r: any): User => ({
+   id: r.id, name: r.name, email: r.email, homeCountry: r.home_country, isAdmin: !!r.is_admin,
+ });
+ 
+ export const rowToRule = (r: any): Rule => ({
+   id: r.id, userId: r.user_id, name: r.name,
+   categories: JSON.parse(r.categories) as Category[],
+   keywords: JSON.parse(r.keywords) as string[],
+   threshold: r.threshold,
+   channelIds: JSON.parse(r.channel_ids) as number[],
+   enabled: !!r.enabled,
+ });
+ 
+ export const rowToEvent = (r: any): EventRow => ({
+   id: r.id, source: r.source, externalId: r.external_id, category: r.category as Category,
+   title: r.title, summary: r.summary, url: r.url, country: r.country, scope: r.scope as Scope,
+   severity: r.severity, occurredAt: r.occurred_at, raw: JSON.parse(r.raw),
+ });
++
++export interface ChannelRow { id: number; userId: number; type: string; config: unknown; enabled: boolean }
++export const rowToChannel = (r: any): ChannelRow => ({
++  id: r.id, userId: r.user_id, type: r.type, config: JSON.parse(r.config), enabled: !!r.enabled,
++});
++
++// A deliveries row joined with its event's columns aliased e_* (select DELIVERY_EVENT_COLUMNS from `deliveries d JOIN events e`).
++export const DELIVERY_EVENT_COLUMNS = `e.title AS e_title, e.category AS e_category, e.country AS e_country, e.scope AS e_scope, e.url AS e_url, e.occurred_at AS e_occurred_at`;
++export const rowToDeliveryWithEvent = (r: any) => ({
++  id: r.id as number, status: r.status as DeliveryStatus, attempts: r.attempts as number, lastError: r.last_error as string | null,
++  createdAt: r.created_at as string, sentAt: r.sent_at as string | null, channelId: r.channel_id as number | null, ruleId: r.rule_id as number | null,
++  breakdown: JSON.parse(r.score_breakdown) as ScoreBreakdown,
++  event: { id: r.event_id as number, title: r.e_title as string, category: r.e_category as Category, country: r.e_country as string | null, scope: r.e_scope as Scope, url: r.e_url as string | null, occurredAt: r.e_occurred_at as string },
++});
++
++export const rowToSource = (r: any) => ({
++  id: r.id as number, type: r.type as string, name: r.name as string, config: JSON.parse(r.config) as unknown, enabled: !!r.enabled,
++  pollIntervalS: r.poll_interval_s as number, lastPolledAt: r.last_polled_at as string | null, lastError: r.last_error as string | null, baselineAt: r.baseline_at as string | null,
++});
+diff --git a/server/src/db/seed.ts b/server/src/db/seed.ts
+new file mode 100644
+index 0000000..b1f4d67
+--- /dev/null
++++ b/server/src/db/seed.ts
+@@ -0,0 +1,36 @@
++import type { Database } from 'better-sqlite3';
++import { sourceAdapters } from '../sources';
++
++const USERS = [
++  { name: 'Anna', email: 'anna@example.com', homeCountry: 'HU', isAdmin: true },
++  { name: 'Bence', email: 'bence@example.com', homeCountry: 'HU', isAdmin: false },
++  { name: 'Priya', email: 'priya@example.com', homeCountry: 'NP', isAdmin: false },
++];
++
++const SOURCES: { type: keyof typeof sourceAdapters; name: string; config: unknown }[] = [
++  { type: 'gdacs', name: 'GDACS', config: {} },
++  { type: 'coingecko', name: 'CoinGecko', config: { coins: ['bitcoin', 'ethereum'], minChangePct: 3 } },
++  { type: 'rss', name: 'Telex', config: { feedId: 'telex', url: 'https://telex.hu/rss', country: 'HU', breakingKeywords: ['rendkívüli', 'breaking'] } },
++  { type: 'rss', name: 'HVG', config: { feedId: 'hvg', url: 'https://hvg.hu/rss', country: 'HU', breakingKeywords: ['rendkívüli', 'breaking'] } },
++  { type: 'rss', name: 'BBC World', config: { feedId: 'bbc-world', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', country: null, breakingKeywords: ['breaking'] } },
++];
++
++/** Demo data. Runs only when `users` is empty, so it is safe to call on every start. */
++export function seed(db: Database, opts: { slackWebhook?: string } = {}): void {
++  db.transaction(() => {
++    if ((db.prepare(`SELECT COUNT(*) AS n FROM users`).get() as { n: number }).n > 0) return;
++    const insUser = db.prepare(`INSERT INTO users (name, email, home_country, is_admin) VALUES (?, ?, ?, ?)`);
++    const insChannel = db.prepare(`INSERT INTO channels (user_id, type, config) VALUES (?, ?, ?)`);
++    const insRule = db.prepare(`INSERT INTO rules (user_id, name, categories, keywords, threshold, channel_ids) VALUES (?, 'Default', '[]', '[]', 0.5, ?)`);
++    const insSource = db.prepare(`INSERT INTO sources (type, name, config, poll_interval_s) VALUES (?, ?, ?, 300)`);
++
++    for (const u of USERS) {
++      const userId = insUser.run(u.name, u.email, u.homeCountry, u.isAdmin ? 1 : 0).lastInsertRowid;
++      const channelIds = [Number(insChannel.run(userId, 'email', JSON.stringify({ to: u.email })).lastInsertRowid)];
++      if (u.name === 'Bence' && opts.slackWebhook)
++        channelIds.push(Number(insChannel.run(userId, 'slack', JSON.stringify({ webhookUrl: opts.slackWebhook })).lastInsertRowid));
++      insRule.run(userId, JSON.stringify(channelIds));
++    }
++    for (const s of SOURCES) insSource.run(s.type, s.name, JSON.stringify(sourceAdapters[s.type].configSchema.parse(s.config)));
++  })();
++}
+diff --git a/server/src/http/admin-routes.ts b/server/src/http/admin-routes.ts
+new file mode 100644
+index 0000000..a92a86c
+--- /dev/null
++++ b/server/src/http/admin-routes.ts
+@@ -0,0 +1,88 @@
++import type { FastifyInstance } from 'fastify';
++import type { Database } from 'better-sqlite3';
++import { z } from 'zod';
++import { DELIVERY_EVENT_COLUMNS, rowToDeliveryWithEvent, rowToEvent, rowToRule, rowToSource, rowToUser } from '../db/rows';
++import { ingest } from '../pipeline/ingest';
++import { pollSource } from '../pipeline/poll';
++import { ManualEventInput, manualEvent } from '../sources/manual';
++import type { AppDeps } from './app';
++import { requireAdmin } from './auth';
++import { IdParams, notFound } from './user-routes';
++
++const EventsQuery = z.object({ limit: z.coerce.number().int().min(1).max(500).default(100) });
++const DeliveriesQuery = z.object({ status: z.enum(['pending', 'sent', 'failed']).optional() });
++const SourcePatch = z.strictObject({
++  enabled: z.boolean().optional(),
++  poll_interval_s: z.number().int().min(60).max(86400).optional(),
++}).refine((b) => b.enabled !== undefined || b.poll_interval_s !== undefined, 'at least one of enabled, poll_interval_s');
++const InjectBody = z.strictObject(ManualEventInput.shape);
++
++// Owner = the rule's user, or the channel's when the rule was deleted (both null only if both are gone).
++const rowToAdminDelivery = (r: any) => ({ ...rowToDeliveryWithEvent(r), userId: r.owner_id as number | null });
++
++export function adminRoutes(db: Database, deps: AppDeps) {
++  const q = {
++    users: db.prepare(`SELECT * FROM users ORDER BY id`),
++    rules: db.prepare(`SELECT * FROM rules ORDER BY id`),
++    events: db.prepare(`SELECT * FROM events ORDER BY id DESC LIMIT ?`),
++    // shortcut: newest 500 only, no paging; add cursor paging when the admin UI needs older history
++    deliveries: db.prepare(
++      `SELECT d.*, COALESCE(r.user_id, c.user_id) AS owner_id, ${DELIVERY_EVENT_COLUMNS}
++       FROM deliveries d JOIN events e ON e.id = d.event_id
++       LEFT JOIN channels c ON c.id = d.channel_id LEFT JOIN rules r ON r.id = d.rule_id
++       WHERE (@status IS NULL OR d.status = @status) AND (@id IS NULL OR d.id = @id)
++       ORDER BY d.created_at DESC, d.id DESC LIMIT 500`,
++    ),
++    deliveryStatus: db.prepare(`SELECT status FROM deliveries WHERE id = ?`),
++    retry: db.prepare(`UPDATE deliveries SET status = 'pending', attempts = 0, next_attempt_at = ?, last_error = NULL WHERE id = ? AND status = 'failed'`),
++    sources: db.prepare(`SELECT * FROM sources ORDER BY id`),
++    source: db.prepare(`SELECT * FROM sources WHERE id = ?`),
++    updateSource: db.prepare(`UPDATE sources SET enabled = COALESCE(?, enabled), poll_interval_s = COALESCE(?, poll_interval_s) WHERE id = ?`),
++  };
++  const getDelivery = (id: number) => rowToAdminDelivery(q.deliveries.get({ status: null, id }));
++
++  return async (app: FastifyInstance) => {
++    app.addHook('onRequest', requireAdmin);
++
++    app.get('/users', async () => q.users.all().map(rowToUser));
++
++    app.get('/rules', async () => q.rules.all().map(rowToRule));
++
++    app.get('/events', async (req) => q.events.all(EventsQuery.parse(req.query).limit).map(rowToEvent));
++
++    app.post('/events', async (req, reply) => {
++      const body = InjectBody.parse(req.body);
++      const now = deps.now();
++      const { inserted, deliveriesCreated } = ingest(db, [manualEvent(body, now)], now);
++      return reply.code(201).send({ event: inserted[0], deliveriesCreated });
++    });
++
++    app.get('/deliveries', async (req) =>
++      q.deliveries.all({ status: DeliveriesQuery.parse(req.query).status ?? null, id: null }).map(rowToAdminDelivery));
++
++    app.post('/deliveries/:id/retry', async (req, reply) => {
++      const { id } = IdParams.parse(req.params);
++      if (q.retry.run(deps.now().toISOString(), id).changes) return getDelivery(id);
++      return q.deliveryStatus.get(id)
++        ? reply.code(409).send({ error: 'only failed deliveries can be retried' })
++        : reply.code(404).send(notFound);
++    });
++
++    app.get('/sources', async () => q.sources.all().map(rowToSource));
++
++    app.patch('/sources/:id', async (req, reply) => {
++      const { id } = IdParams.parse(req.params);
++      const b = SourcePatch.parse(req.body);
++      const enabled = b.enabled === undefined ? null : b.enabled ? 1 : 0;
++      if (!q.updateSource.run(enabled, b.poll_interval_s ?? null, id).changes) return reply.code(404).send(notFound);
++      return rowToSource(q.source.get(id));
++    });
++
++    // Manual action: polls even a disabled source. Poll failures are a normal result (200, ok:false).
++    app.post('/sources/:id/poll', async (req, reply) => {
++      const { id } = IdParams.parse(req.params);
++      if (!q.source.get(id)) return reply.code(404).send(notFound);
++      return pollSource(db, id, deps);
++    });
++  };
++}
+diff --git a/server/src/http/app.ts b/server/src/http/app.ts
+new file mode 100644
+index 0000000..ec9d25e
+--- /dev/null
++++ b/server/src/http/app.ts
+@@ -0,0 +1,37 @@
++import Fastify, { type FastifyInstance } from 'fastify';
++import type { Database } from 'better-sqlite3';
++import { z } from 'zod';
++import type { ChannelAdapter } from '../channels';
++import { authenticate } from './auth';
++import { userRoutes } from './user-routes';
++import { adminRoutes } from './admin-routes';
++
++export interface AppDeps { registry: Record<string, ChannelAdapter<any>>; fetchImpl: typeof fetch; now: () => Date; log: (msg: string) => void }
++
++// Errors have no channel config at hand, so mask by pattern: Slack webhook paths and URL credentials.
++const scrub = (s: string) => s
++  .replace(/https:\/\/hooks\.slack\.com\/\S*/g, 'https://hooks.slack.com/***')
++  .replace(/\/\/[^\s/@:]+:[^\s/@]+@/g, '//***@');
++
++export function buildApp(db: Database, deps: AppDeps): FastifyInstance {
++  const app = Fastify();
++  app.decorateRequest('user', null as any);
++
++  app.setErrorHandler((err, _req, reply) => {
++    if (err instanceof z.ZodError) return reply.code(400).send({ error: 'invalid request', issues: err.issues });
++    const e = err as { statusCode?: number; code?: string; message?: string };
++    // Fastify's own client errors (malformed JSON, wrong content type, body too large).
++    if (e.statusCode && e.statusCode >= 400 && e.statusCode < 500) return reply.code(e.statusCode).send({ error: e.message, code: e.code });
++    deps.log(`http error: ${scrub(e.message ?? String(err))}`);
++    return reply.code(500).send({ error: 'internal error' });
++  });
++  app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'not found' }));
++
++  app.register(async (api) => {
++    // onRequest runs before body parsing, so an unknown caller gets 401 even with a malformed body.
++    api.addHook('onRequest', authenticate(db));
++    await api.register(userRoutes(db, deps));
++    await api.register(adminRoutes(db, deps), { prefix: '/admin' });
++  }, { prefix: '/api' });
++  return app;
++}
+diff --git a/server/src/http/auth.ts b/server/src/http/auth.ts
+new file mode 100644
+index 0000000..7b7dec5
+--- /dev/null
++++ b/server/src/http/auth.ts
+@@ -0,0 +1,28 @@
++import type { FastifyReply, FastifyRequest } from 'fastify';
++import type { Database } from 'better-sqlite3';
++import { rowToUser } from '../db/rows';
++import type { User } from '../types';
++
++declare module 'fastify' {
++  interface FastifyRequest { user: User }
++}
++
++/** Strict positive integer from a header or path segment ("1abc", "0", "-1", "1.5" → null). */
++export const POSITIVE_INT = /^[1-9]\d{0,14}$/; // <= 15 digits stays a safe integer
++export const positiveInt = (s: unknown): number | null =>
++  typeof s === 'string' && POSITIVE_INT.test(s) ? Number(s) : null;
++
++// shortcut: header identity, not authentication; replace with real auth before any deployment
++export function authenticate(db: Database) {
++  const getUser = db.prepare(`SELECT * FROM users WHERE id = ?`);
++  return async (req: FastifyRequest, reply: FastifyReply) => {
++    const id = positiveInt(req.headers['x-user-id']);
++    const row = id === null ? undefined : getUser.get(id);
++    if (!row) return reply.code(401).send({ error: 'unknown or missing X-User-Id' });
++    req.user = rowToUser(row);
++  };
++}
++
++export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
++  if (!req.user.isAdmin) return reply.code(403).send({ error: 'admin only' });
++}
+diff --git a/server/src/http/user-routes.ts b/server/src/http/user-routes.ts
+new file mode 100644
+index 0000000..5f5bb8c
+--- /dev/null
++++ b/server/src/http/user-routes.ts
+@@ -0,0 +1,165 @@
++import type { FastifyInstance } from 'fastify';
++import type { Database } from 'better-sqlite3';
++import { z } from 'zod';
++import { buildMessage, scrubSecrets } from '../channels';
++import { DELIVERY_EVENT_COLUMNS, rowToChannel, rowToDeliveryWithEvent, rowToRule, type ChannelRow } from '../db/rows';
++import { score } from '../scoring';
++import type { EventRow, User } from '../types';
++import type { AppDeps } from './app';
++import { POSITIVE_INT } from './auth';
++
++export const IdParams = z.object({ id: z.string().regex(POSITIVE_INT, 'must be a positive integer').transform(Number) });
++
++const ruleFields = {
++  name: z.string().min(1).max(100),
++  categories: z.array(z.enum(['news', 'market', 'disaster'])),
++  keywords: z.array(z.string().min(1).max(50)).max(20),
++  threshold: z.number().min(0).max(1),
++  channelIds: z.array(z.number().int().positive()),
++  enabled: z.boolean(),
++};
++const RuleCreate = z.strictObject({
++  ...ruleFields,
++  categories: ruleFields.categories.default([]),
++  keywords: ruleFields.keywords.default([]),
++  threshold: ruleFields.threshold.default(0.5),
++  channelIds: ruleFields.channelIds.default([]),
++  enabled: ruleFields.enabled.default(true),
++});
++const RulePatch = z.strictObject(ruleFields).partial();
++const ChannelCreate = z.strictObject({ type: z.string(), config: z.unknown().optional(), enabled: z.boolean().default(true) });
++const ChannelPatch = z.strictObject({ config: z.unknown().optional(), enabled: z.boolean().optional() });
++
++const badRequest = (path: string, message: string) => ({ error: 'invalid request', issues: [{ path: [path], message }] });
++export const notFound = { error: 'not found' };
++const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
++
++export function userRoutes(db: Database, deps: AppDeps) {
++  const { registry } = deps;
++  const q = {
++    rules: db.prepare(`SELECT * FROM rules WHERE user_id = ? ORDER BY id`),
++    rule: db.prepare(`SELECT * FROM rules WHERE id = ? AND user_id = ?`),
++    insertRule: db.prepare(`INSERT INTO rules (user_id, name, categories, keywords, threshold, channel_ids, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`),
++    updateRule: db.prepare(`UPDATE rules SET name = ?, categories = ?, keywords = ?, threshold = ?, channel_ids = ?, enabled = ? WHERE id = ?`),
++    setRuleChannels: db.prepare(`UPDATE rules SET channel_ids = ? WHERE id = ?`),
++    deleteRule: db.prepare(`DELETE FROM rules WHERE id = ? AND user_id = ?`),
++    channels: db.prepare(`SELECT * FROM channels WHERE user_id = ? ORDER BY id`),
++    channel: db.prepare(`SELECT * FROM channels WHERE id = ? AND user_id = ?`),
++    insertChannel: db.prepare(`INSERT INTO channels (user_id, type, config, enabled) VALUES (?, ?, ?, ?)`),
++    updateChannel: db.prepare(`UPDATE channels SET config = ?, enabled = ? WHERE id = ?`),
++    deleteChannel: db.prepare(`DELETE FROM channels WHERE id = ?`),
++    deliveries: db.prepare(
++      `SELECT d.*, ${DELIVERY_EVENT_COLUMNS}
++       FROM deliveries d JOIN events e ON e.id = d.event_id
++       LEFT JOIN channels c ON c.id = d.channel_id LEFT JOIN rules r ON r.id = d.rule_id
++       WHERE c.user_id = ? OR r.user_id = ?
++       ORDER BY d.created_at DESC, d.id DESC LIMIT 100`,
++    ),
++  };
++
++  const getRule = (id: number, user: User) => { const r = q.rule.get(id, user.id); return r ? rowToRule(r) : null; };
++  const getChannel = (id: number, user: User) => { const r = q.channel.get(id, user.id); return r ? rowToChannel(r) : null; };
++  const ownsAll = (ids: number[], user: User) => ids.every((id) => q.channel.get(id, user.id));
++  const masked = (c: ChannelRow) => ({ id: c.id, type: c.type, config: registry[c.type]?.maskConfig(c.config) ?? {}, enabled: c.enabled });
++  /** Validates with the adapter schema (throws ZodError → 400). Email `to` defaults to the user's email. */
++  const parseConfig = (type: string, config: unknown, user: User) => {
++    const raw = type === 'email' && (config === undefined || isObject(config)) ? { to: user.email, ...(config ?? {}) } : config;
++    return registry[type].configSchema.parse(raw);
++  };
++
++  return async (app: FastifyInstance) => {
++    app.get('/me', async (req) => req.user);
++
++    app.get('/rules', async (req) => q.rules.all(req.user.id).map(rowToRule));
++
++    app.get('/rules/:id', async (req, reply) => getRule(IdParams.parse(req.params).id, req.user) ?? reply.code(404).send(notFound));
++
++    app.post('/rules', async (req, reply) => {
++      const b = RuleCreate.parse(req.body);
++      const channelIds = [...new Set(b.channelIds)];
++      if (!ownsAll(channelIds, req.user)) return reply.code(400).send(badRequest('channelIds', 'unknown channel'));
++      const id = Number(q.insertRule.run(req.user.id, b.name, JSON.stringify(b.categories), JSON.stringify(b.keywords),
++        b.threshold, JSON.stringify(channelIds), b.enabled ? 1 : 0).lastInsertRowid);
++      return reply.code(201).send(getRule(id, req.user));
++    });
++
++    app.patch('/rules/:id', async (req, reply) => {
++      const { id } = IdParams.parse(req.params);
++      const b = RulePatch.parse(req.body);
++      const cur = getRule(id, req.user);
++      if (!cur) return reply.code(404).send(notFound);
++      const next = { ...cur, ...b, channelIds: [...new Set(b.channelIds ?? cur.channelIds)] };
++      if (b.channelIds && !ownsAll(next.channelIds, req.user)) return reply.code(400).send(badRequest('channelIds', 'unknown channel'));
++      q.updateRule.run(next.name, JSON.stringify(next.categories), JSON.stringify(next.keywords), next.threshold,
++        JSON.stringify(next.channelIds), next.enabled ? 1 : 0, id);
++      return getRule(id, req.user);
++    });
++
++    app.delete('/rules/:id', async (req, reply) => {
++      const { changes } = q.deleteRule.run(IdParams.parse(req.params).id, req.user.id);
++      return changes ? reply.code(204).send() : reply.code(404).send(notFound);
++    });
++
++    app.get('/channels', async (req) => q.channels.all(req.user.id).map((r) => masked(rowToChannel(r))));
++
++    app.get('/channels/:id', async (req, reply) => {
++      const c = getChannel(IdParams.parse(req.params).id, req.user);
++      return c ? masked(c) : reply.code(404).send(notFound);
++    });
++
++    app.post('/channels', async (req, reply) => {
++      const b = ChannelCreate.parse(req.body);
++      if (!Object.hasOwn(registry, b.type)) return reply.code(400).send(badRequest('type', `unknown channel type, expected one of: ${Object.keys(registry).join(', ')}`));
++      const config = parseConfig(b.type, b.config, req.user);
++      const id = Number(q.insertChannel.run(req.user.id, b.type, JSON.stringify(config), b.enabled ? 1 : 0).lastInsertRowid);
++      return reply.code(201).send(masked(getChannel(id, req.user)!));
++    });
++
++    app.patch('/channels/:id', async (req, reply) => {
++      const { id } = IdParams.parse(req.params);
++      const b = ChannelPatch.parse(req.body);
++      const cur = getChannel(id, req.user);
++      if (!cur) return reply.code(404).send(notFound);
++      if (!Object.hasOwn(registry, cur.type)) return reply.code(400).send(badRequest('type', 'channel type no longer supported'));
++      const config = b.config === undefined ? cur.config : parseConfig(cur.type, b.config, req.user);
++      q.updateChannel.run(JSON.stringify(config), (b.enabled ?? cur.enabled) ? 1 : 0, id);
++      return masked(getChannel(id, req.user)!);
++    });
++
++    // Rules drop the id in the same transaction; deliveries keep their history (channel_id ON DELETE SET NULL).
++    const deleteChannel = db.transaction((id: number, user: User) => {
++      for (const r of q.rules.all(user.id).map(rowToRule))
++        if (r.channelIds.includes(id)) q.setRuleChannels.run(JSON.stringify(r.channelIds.filter((c) => c !== id)), r.id);
++      q.deleteChannel.run(id);
++    });
++    app.delete('/channels/:id', async (req, reply) => {
++      const { id } = IdParams.parse(req.params);
++      if (!getChannel(id, req.user)) return reply.code(404).send(notFound);
++      deleteChannel(id, req.user);
++      return reply.code(204).send();
++    });
++
++    // Explicit user action: sends even if the channel is disabled, skipping the outbox.
++    app.post('/channels/:id/test', async (req, reply) => {
++      const c = getChannel(IdParams.parse(req.params).id, req.user);
++      if (!c) return reply.code(404).send(notFound);
++      const adapter = Object.hasOwn(registry, c.type) ? registry[c.type] : undefined;
++      if (!adapter) return { ok: false, error: `unknown channel type ${c.type}` };
++      const parsed = adapter.configSchema.safeParse(c.config);
++      if (!parsed.success) return { ok: false, error: 'invalid channel config' };
++      const event: EventRow = {
++        id: 0, source: 'test', externalId: 'test', category: 'news', title: 'World Alerts test message',
++        summary: 'This is a test alert sent from your channel settings.', url: null, scope: 'global', country: null,
++        severity: 1, occurredAt: deps.now().toISOString(), raw: {},
++      };
++      try {
++        await adapter.send(parsed.data, buildMessage(event, score(event, req.user.homeCountry, 0.5)));
++        return { ok: true };
++      } catch (err) {
++        return { ok: false, error: scrubSecrets(err instanceof Error ? err.message : String(err), c.config) };
++      }
++    });
++
++    app.get('/my/deliveries', async (req) => q.deliveries.all(req.user.id, req.user.id).map(rowToDeliveryWithEvent));
++  };
++}
+diff --git a/server/src/main.ts b/server/src/main.ts
+new file mode 100644
+index 0000000..8a7050b
+--- /dev/null
++++ b/server/src/main.ts
+@@ -0,0 +1,38 @@
++import { mkdirSync } from 'node:fs';
++import { dirname } from 'node:path';
++import { createChannelRegistry } from './channels';
++import { openDb } from './db';
++import { seed } from './db/seed';
++import { buildApp } from './http/app';
++import { startScheduler } from './pipeline/scheduler';
++
++const port = Number(process.env.PORT ?? 3000);
++const dbPath = process.env.DB_PATH ?? 'data/alerts.db';
++const log = (msg: string) => console.log(`[${new Date().toISOString()}] ${msg}`);
++const now = () => new Date();
++
++mkdirSync(dirname(dbPath), { recursive: true });
++const db = openDb(dbPath);
++seed(db, { slackWebhook: process.env.SEED_SLACK_WEBHOOK });
++
++const registry = createChannelRegistry({
++  smtpUrl: process.env.SMTP_URL,
++  outboxDir: 'data/outbox',
++  slackDryRun: (process.env.SLACK_DRY_RUN ?? '1') !== '0',
++  log,
++});
++const app = buildApp(db, { registry, fetchImpl: fetch, now, log });
++const scheduler = startScheduler(db, { registry, fetchImpl: fetch, now, log });
++
++// shortcut: binds to localhost only because X-User-Id is not authentication; add real auth before exposing it
++await app.listen({ port, host: '127.0.0.1' });
++log(`World Alerts API on http://127.0.0.1:${port}`);
++
++const shutdown = async () => {
++  scheduler.stop();
++  await app.close();
++  db.close();
++  process.exit(0);
++};
++process.once('SIGINT', shutdown);
++process.once('SIGTERM', shutdown);
+diff --git a/server/test/api-admin.test.ts b/server/test/api-admin.test.ts
+new file mode 100644
+index 0000000..45ef558
+--- /dev/null
++++ b/server/test/api-admin.test.ts
+@@ -0,0 +1,206 @@
++import { describe, it, expect, beforeEach } from 'vitest';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import type { FastifyInstance } from 'fastify';
++import { buildApp } from '../src/http/app';
++import { createChannelRegistry } from '../src/channels';
++import { seed } from '../src/db/seed';
++import { makeDb } from './helpers';
++
++const SECRET_HOOK = 'https://hooks.slack.com/services/T000/B000/abcdSECRET1234';
++const telexXml = fs.readFileSync(new URL('./fixtures/telex.xml', import.meta.url), 'utf8');
++const t0 = new Date('2026-10-19T12:00:00Z');
++// Seeded ids: users Anna 1 (admin), Bence 2, Priya 3 (NP); sources 1 GDACS, 2 CoinGecko, 3 Telex, 4 HVG, 5 BBC.
++const ANNA = 1, BENCE = 2, PRIYA = 3, TELEX = 3;
++
++let db: ReturnType<typeof makeDb>;
++let app: FastifyInstance;
++let fetched: string[];
++
++beforeEach(() => {
++  db = makeDb();
++  seed(db);
++  fetched = [];
++  const fetchImpl = (async (url: any) => { fetched.push(String(url)); return new Response(telexXml, { status: 200 }); }) as unknown as typeof fetch;
++  const outboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-outbox-'));
++  const registry = createChannelRegistry({ outboxDir, slackDryRun: true, log: () => {} });
++  app = buildApp(db, { registry, fetchImpl, now: () => t0, log: () => {} });
++});
++
++type Method = 'GET' | 'POST' | 'PATCH';
++const req = (method: Method, url: string, user: number, payload?: unknown) =>
++  app.inject({ method, url, headers: { 'x-user-id': String(user) }, ...(payload === undefined ? {} : { payload: payload as any }) });
++const inject = (body: unknown) => req('POST', '/api/admin/events', ANNA, body);
++const userOfDelivery = (d: { userId: number }) => d.userId;
++const setStatus = (id: number, status: string) =>
++  db.prepare(`UPDATE deliveries SET status = ?, attempts = 3, last_error = 'boom', next_attempt_at = NULL WHERE id = ?`).run(status, id);
++
++describe('admin access', () => {
++  const routes: [Method, string, unknown?][] = [
++    ['GET', '/api/admin/users'], ['GET', '/api/admin/rules'], ['GET', '/api/admin/events'], ['GET', '/api/admin/deliveries'],
++    ['POST', '/api/admin/deliveries/1/retry'], ['GET', '/api/admin/sources'], ['PATCH', '/api/admin/sources/1', { enabled: false }],
++    ['POST', '/api/admin/sources/1/poll'], ['POST', '/api/admin/events', { category: 'news', title: 'x', severity: 1 }],
++  ];
++  it.each(routes)('%s %s → 403 for a non-admin, writes nothing', async (method, url, body) => {
++    const res = await req(method, url, BENCE, body);
++    expect(res.statusCode).toBe(403);
++    expect(res.json()).toEqual({ error: 'admin only' });
++    expect(fetched).toEqual([]);
++    expect((db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as any).n).toBe(0);
++    expect((db.prepare(`SELECT enabled FROM sources WHERE id = 1`).get() as any).enabled).toBe(1);
++  });
++  it('no X-User-Id with a malformed JSON body → 401, not 400', async () => {
++    const res = await app.inject({ method: 'POST', url: '/api/admin/events', headers: { 'content-type': 'application/json' }, payload: '{bad' });
++    expect(res.statusCode).toBe(401);
++  });
++  it('a known user with a malformed JSON body → 400', async () => {
++    const res = await app.inject({ method: 'POST', url: '/api/admin/events', headers: { 'content-type': 'application/json', 'x-user-id': '1' }, payload: '{bad' });
++    expect(res.statusCode).toBe(400);
++  });
++});
++
++describe('users, rules, events', () => {
++  it('GET /users lists users without channel configs', async () => {
++    const res = await req('GET', '/api/admin/users', ANNA);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual([
++      { id: ANNA, name: 'Anna', email: 'anna@example.com', homeCountry: 'HU', isAdmin: true },
++      { id: BENCE, name: 'Bence', email: 'bence@example.com', homeCountry: 'HU', isAdmin: false },
++      { id: PRIYA, name: 'Priya', email: 'priya@example.com', homeCountry: 'NP', isAdmin: false },
++    ]);
++  });
++  it('GET /rules lists every user\'s rules with userId', async () => {
++    const res = await req('GET', '/api/admin/rules', ANNA);
++    expect(res.json().map((r: any) => r.userId)).toEqual([ANNA, BENCE, PRIYA]);
++    expect(res.json()[0]).toMatchObject({ name: 'Default', threshold: 0.5, channelIds: [1], enabled: true });
++  });
++  it('GET /events: newest first, default limit 100, ?limit validated (1..500)', async () => {
++    for (const title of ['first', 'second']) await inject({ category: 'news', title, severity: 0.1 });
++    const all = await req('GET', '/api/admin/events', ANNA);
++    expect(all.json().map((e: any) => e.title)).toEqual(['second', 'first']);
++    expect(all.json()[0]).toMatchObject({ source: 'manual', scope: 'global', severity: 0.1 });
++    expect((await req('GET', '/api/admin/events?limit=1', ANNA)).json().map((e: any) => e.title)).toEqual(['second']);
++    for (const bad of ['0', '501', 'x', '1.5']) expect((await req('GET', `/api/admin/events?limit=${bad}`, ANNA)).statusCode).toBe(400);
++  });
++});
++
++describe('POST /events (inject)', () => {
++  it('HU severity 0.6 → Anna and Bence get one each, Priya none', async () => {
++    const res = await inject({ category: 'disaster', title: 'Árvíz a Dunán', country: 'HU', severity: 0.6 });
++    expect(res.statusCode).toBe(201);
++    expect(res.json()).toMatchObject({ deliveriesCreated: 2, event: { id: expect.any(Number), source: 'manual', title: 'Árvíz a Dunán', country: 'HU', scope: 'country', occurredAt: t0.toISOString() } });
++    const ds = (await req('GET', '/api/admin/deliveries', ANNA)).json();
++    expect(ds.map(userOfDelivery).sort()).toEqual([ANNA, BENCE]);
++  });
++  it('Red severity 1.0 in NP → all three users get one (critical override)', async () => {
++    const res = await inject({ category: 'disaster', title: 'Earthquake', country: 'NP', severity: 1 });
++    expect(res.json().deliveriesCreated).toBe(3);
++    const ds = (await req('GET', '/api/admin/deliveries', ANNA)).json();
++    expect(ds.map(userOfDelivery).sort()).toEqual([ANNA, BENCE, PRIYA]);
++    expect(ds[0].breakdown.override).toBe(true);
++  });
++  it.each([
++    ['unknown key', { category: 'news', title: 'x', severity: 0.5, extra: 1 }],
++    ['unknown country', { category: 'news', title: 'x', severity: 0.5, country: 'XX' }],
++    ['severity out of range', { category: 'news', title: 'x', severity: 1.5 }],
++    ['blank title', { category: 'news', title: '  ', severity: 0.5 }],
++    ['unknown category', { category: 'sports', title: 'x', severity: 0.5 }],
++  ])('%s → 400, nothing written', async (_name, body) => {
++    const res = await inject(body);
++    expect(res.statusCode).toBe(400);
++    expect(res.json()).toMatchObject({ error: 'invalid request', issues: expect.any(Array) });
++    expect((db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as any).n).toBe(0);
++  });
++});
++
++describe('deliveries', () => {
++  it('lists the /my/deliveries shape plus userId; never leaks a Slack webhook', async () => {
++    db = makeDb();
++    seed(db, { slackWebhook: SECRET_HOOK });
++    app = buildApp(db, { registry: createChannelRegistry({ outboxDir: os.tmpdir(), slackDryRun: true, log: () => {} }), fetchImpl: fetch, now: () => t0, log: () => {} });
++    await inject({ category: 'news', title: 'HU news', country: 'HU', severity: 0.6 });
++    const res = await req('GET', '/api/admin/deliveries', ANNA);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toHaveLength(3); // Anna email, Bence email + slack
++    expect(res.json()[0]).toEqual({
++      id: expect.any(Number), userId: expect.any(Number), status: 'pending', attempts: 0, lastError: null, createdAt: t0.toISOString(), sentAt: null,
++      channelId: expect.any(Number), ruleId: expect.any(Number), breakdown: expect.objectContaining({ fires: true }),
++      event: { id: 1, title: 'HU news', category: 'news', country: 'HU', scope: 'country', url: null, occurredAt: t0.toISOString() },
++    });
++    expect(res.body).not.toContain('abcdSECRET1234');
++    expect(res.body).not.toContain('hooks.slack.com');
++  });
++  it('?status= filters, an unknown status → 400', async () => {
++    await inject({ category: 'news', title: 'HU news', country: 'HU', severity: 0.6 });
++    setStatus(1, 'failed');
++    expect((await req('GET', '/api/admin/deliveries?status=failed', ANNA)).json().map((d: any) => d.id)).toEqual([1]);
++    expect((await req('GET', '/api/admin/deliveries?status=pending', ANNA)).json().map((d: any) => d.id)).toEqual([2]);
++    expect((await req('GET', '/api/admin/deliveries?status=bogus', ANNA)).statusCode).toBe(400);
++  });
++  it('retry: failed → pending, attempts 0, next_attempt_at now, last_error cleared', async () => {
++    await inject({ category: 'news', title: 'HU news', country: 'HU', severity: 0.6 });
++    setStatus(1, 'failed');
++    const res = await req('POST', '/api/admin/deliveries/1/retry', ANNA);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toMatchObject({ id: 1, status: 'pending', attempts: 0, lastError: null, userId: expect.any(Number) });
++    expect(db.prepare(`SELECT status, attempts, last_error, next_attempt_at FROM deliveries WHERE id = 1`).get())
++      .toEqual({ status: 'pending', attempts: 0, last_error: null, next_attempt_at: t0.toISOString() });
++  });
++  it.each(['sent', 'pending'])('retry on a %s delivery → 409, unchanged', async (status) => {
++    await inject({ category: 'news', title: 'HU news', country: 'HU', severity: 0.6 });
++    setStatus(1, status);
++    const res = await req('POST', '/api/admin/deliveries/1/retry', ANNA);
++    expect(res.statusCode).toBe(409);
++    expect(res.json()).toEqual({ error: 'only failed deliveries can be retried' });
++    expect(db.prepare(`SELECT status, attempts FROM deliveries WHERE id = 1`).get()).toEqual({ status, attempts: 3 });
++  });
++  it('retry: unknown id → 404, bad id → 400', async () => {
++    expect((await req('POST', '/api/admin/deliveries/99/retry', ANNA)).statusCode).toBe(404);
++    expect((await req('POST', '/api/admin/deliveries/abc/retry', ANNA)).statusCode).toBe(400);
++  });
++});
++
++describe('sources', () => {
++  it('GET /sources lists sources with camelCase fields', async () => {
++    const res = await req('GET', '/api/admin/sources', ANNA);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toHaveLength(5);
++    expect(res.json()[TELEX - 1]).toEqual({
++      id: TELEX, type: 'rss', name: 'Telex', config: { feedId: 'telex', url: 'https://telex.hu/rss', country: 'HU', breakingKeywords: ['rendkívüli', 'breaking'] },
++      enabled: true, pollIntervalS: 300, lastPolledAt: null, lastError: null, baselineAt: null,
++    });
++  });
++  it('PATCH updates enabled and poll_interval_s', async () => {
++    const res = await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, { enabled: false, poll_interval_s: 600 });
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toMatchObject({ id: TELEX, enabled: false, pollIntervalS: 600 });
++    expect((await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, { enabled: true })).json()).toMatchObject({ enabled: true, pollIntervalS: 600 });
++  });
++  it.each([
++    ['interval below 60', { poll_interval_s: 5 }], ['interval above 86400', { poll_interval_s: 86401 }],
++    ['non-integer interval', { poll_interval_s: 60.5 }], ['empty body', {}], ['unknown key', { enabled: true, name: 'x' }],
++  ])('PATCH %s → 400, unchanged', async (_name, body) => {
++    expect((await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, body)).statusCode).toBe(400);
++    expect(db.prepare(`SELECT enabled, poll_interval_s FROM sources WHERE id = ?`).get(TELEX)).toEqual({ enabled: 1, poll_interval_s: 300 });
++  });
++  it('PATCH unknown id → 404', async () => {
++    expect((await req('PATCH', '/api/admin/sources/99', ANNA, { enabled: false })).statusCode).toBe(404);
++  });
++  it('POST /poll runs pollSource (even when disabled) and returns its result', async () => {
++    db.prepare(`UPDATE sources SET enabled = 0 WHERE id = ?`).run(TELEX);
++    const res = await req('POST', `/api/admin/sources/${TELEX}/poll`, ANNA);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual({ ok: true, inserted: expect.any(Number) });
++    expect(res.json().inserted).toBeGreaterThan(0);
++    expect(fetched).toEqual(['https://telex.hu/rss']);
++    expect((await req('GET', '/api/admin/sources', ANNA)).json()[TELEX - 1]).toMatchObject({ lastPolledAt: t0.toISOString(), lastError: null, baselineAt: t0.toISOString() });
++  });
++  it('POST /poll with a failing feed → 200 ok:false; unknown id → 404', async () => {
++    db.prepare(`UPDATE sources SET config = '{"bad":1}' WHERE id = ?`).run(TELEX);
++    const res = await req('POST', `/api/admin/sources/${TELEX}/poll`, ANNA);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual({ ok: false, inserted: 0, error: 'invalid config' });
++    expect((await req('POST', '/api/admin/sources/99/poll', ANNA)).statusCode).toBe(404);
++  });
++});
+diff --git a/server/test/api-user.test.ts b/server/test/api-user.test.ts
+new file mode 100644
+index 0000000..10bf15d
+--- /dev/null
++++ b/server/test/api-user.test.ts
+@@ -0,0 +1,246 @@
++import { describe, it, expect, beforeEach } from 'vitest';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import type { FastifyInstance } from 'fastify';
++import { buildApp } from '../src/http/app';
++import { requireAdmin } from '../src/http/auth';
++import { createChannelRegistry } from '../src/channels';
++import { ingest } from '../src/pipeline/ingest';
++import { addChannel, addRule, addUser, makeDb } from './helpers';
++
++const SECRET_HOOK = 'https://hooks.slack.com/services/T000/B000/abcdSECRET1234';
++const t0 = new Date('2026-10-19T12:00:00Z');
++
++let db: ReturnType<typeof makeDb>;
++let app: FastifyInstance;
++let anna: number, bence: number;
++let logs: string[];
++let slackStatus: number;
++
++beforeEach(() => {
++  db = makeDb();
++  anna = addUser(db, { name: 'Anna', email: 'anna@example.com', isAdmin: true });
++  bence = addUser(db, { name: 'Bence', email: 'bence@example.com' });
++  logs = [];
++  slackStatus = 200;
++  const fetchImpl = (async () => new Response('', { status: slackStatus })) as unknown as typeof fetch;
++  const outboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-outbox-'));
++  const registry = createChannelRegistry({ outboxDir, slackDryRun: false, fetchImpl, log: () => {} });
++  app = buildApp(db, { registry, fetchImpl, now: () => t0, log: (m) => logs.push(m) });
++});
++
++const as = (userId: number | string) => ({ 'x-user-id': String(userId) });
++const req = (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, user: number | string, payload?: unknown) =>
++  app.inject({ method, url, headers: as(user), ...(payload === undefined ? {} : { payload: payload as any }) });
++const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
++const channelIdsOf = (ruleId: number) => JSON.parse((db.prepare(`SELECT channel_ids FROM rules WHERE id = ?`).get(ruleId) as any).channel_ids);
++
++describe('identity', () => {
++  it('no X-User-Id → 401', async () => {
++    const res = await app.inject({ method: 'GET', url: '/api/me' });
++    expect(res.statusCode).toBe(401);
++  });
++  it.each(['1abc', '0', '-1', '1.5', '999'])('X-User-Id %s → 401', async (id) => {
++    expect((await req('GET', '/api/me', id)).statusCode).toBe(401);
++  });
++  it('GET /api/me returns the user', async () => {
++    const res = await req('GET', '/api/me', bence);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual({ id: bence, name: 'Bence', email: 'bence@example.com', homeCountry: 'HU', isAdmin: false });
++  });
++  it('requireAdmin → 403 for non-admins, passes admins', async () => {
++    const reply = { code: (c: number) => ({ send: (b: unknown) => ({ c, b }) }) } as any;
++    expect(await requireAdmin({ user: { isAdmin: false } } as any, reply)).toEqual({ c: 403, b: { error: 'admin only' } });
++    expect(await requireAdmin({ user: { isAdmin: true } } as any, reply)).toBeUndefined();
++  });
++});
++
++describe('rules', () => {
++  it('CRUD round-trip', async () => {
++    const ch = addChannel(db, bence);
++    const created = await req('POST', '/api/rules', bence, { name: 'Floods', categories: ['disaster'], keywords: ['árvíz'], threshold: 0.4, channelIds: [ch, ch] });
++    expect(created.statusCode).toBe(201);
++    const rule = created.json();
++    expect(rule).toEqual({ id: expect.any(Number), userId: bence, name: 'Floods', categories: ['disaster'], keywords: ['árvíz'], threshold: 0.4, channelIds: [ch], enabled: true });
++
++    expect((await req('GET', '/api/rules', bence)).json()).toEqual([rule]);
++    expect((await req('GET', `/api/rules/${rule.id}`, bence)).json()).toEqual(rule);
++
++    const patched = await req('PATCH', `/api/rules/${rule.id}`, bence, { threshold: 0.7, enabled: false });
++    expect(patched.statusCode).toBe(200);
++    expect(patched.json()).toEqual({ ...rule, threshold: 0.7, enabled: false });
++
++    expect((await req('DELETE', `/api/rules/${rule.id}`, bence)).statusCode).toBe(204);
++    expect((await req('GET', '/api/rules', bence)).json()).toEqual([]);
++  });
++
++  it('create applies defaults', async () => {
++    const res = await req('POST', '/api/rules', bence, { name: 'All' });
++    expect(res.json()).toMatchObject({ categories: [], keywords: [], threshold: 0.5, channelIds: [], enabled: true });
++  });
++
++  it("another user's rule → 404 on GET/PATCH/DELETE, and is untouched", async () => {
++    const r = addRule(db, anna, { name: 'mine' });
++    expect((await req('GET', `/api/rules/${r}`, bence)).statusCode).toBe(404);
++    expect((await req('PATCH', `/api/rules/${r}`, bence, { name: 'x' })).statusCode).toBe(404);
++    expect((await req('DELETE', `/api/rules/${r}`, bence)).statusCode).toBe(404);
++    expect((db.prepare(`SELECT name FROM rules WHERE id = ?`).get(r) as any).name).toBe('mine');
++    expect((await req('GET', '/api/rules', bence)).json()).toEqual([]);
++  });
++
++  it('bad path id → 400', async () => {
++    expect((await req('GET', '/api/rules/abc', bence)).statusCode).toBe(400);
++  });
++
++  // Review Focus 5: out-of-range or unknown input → 400 and nothing written.
++  it.each([
++    ['threshold 1.5', { name: 'r', threshold: 1.5 }],
++    ['category sports', { name: 'r', categories: ['sports'] }],
++    ['empty name', { name: '' }],
++    ['21 keywords', { name: 'r', keywords: Array.from({ length: 21 }, (_, i) => `k${i}`) }],
++    ['51-char keyword', { name: 'r', keywords: ['x'.repeat(51)] }],
++  ])('POST /api/rules with %s → 400, rules count unchanged', async (_label, body) => {
++    const before = count('rules');
++    const res = await req('POST', '/api/rules', bence, body);
++    expect(res.statusCode).toBe(400);
++    expect(res.json()).toMatchObject({ error: 'invalid request', issues: expect.any(Array) });
++    expect(count('rules')).toBe(before);
++  });
++
++  it("Review Focus 5: a channelIds entry of another user → 400 on create and update, nothing written", async () => {
++    const own = addChannel(db, bence);
++    const foreign = addChannel(db, anna);
++    const before = count('rules');
++    const res = await req('POST', '/api/rules', bence, { name: 'r', channelIds: [own, foreign] });
++    expect(res.statusCode).toBe(400);
++    expect(res.json().error).toBe('invalid request');
++    expect(count('rules')).toBe(before);
++
++    const r = addRule(db, bence, { channelIds: [own] });
++    expect((await req('PATCH', `/api/rules/${r}`, bence, { channelIds: [foreign] })).statusCode).toBe(400);
++    expect(channelIdsOf(r)).toEqual([own]);
++  });
++
++  it('PATCH threshold 1.5 → 400, rule unchanged', async () => {
++    const r = addRule(db, bence, { threshold: 0.5 });
++    expect((await req('PATCH', `/api/rules/${r}`, bence, { threshold: 1.5 })).statusCode).toBe(400);
++    expect((db.prepare(`SELECT threshold FROM rules WHERE id = ?`).get(r) as any).threshold).toBe(0.5);
++  });
++});
++
++describe('channels', () => {
++  it('email channel: `to` defaults to the user email; round-trip', async () => {
++    const res = await req('POST', '/api/channels', bence, { type: 'email' });
++    expect(res.statusCode).toBe(201);
++    const ch = res.json();
++    expect(ch).toEqual({ id: expect.any(Number), type: 'email', config: { to: 'bence@example.com' }, enabled: true });
++    const patched = await req('PATCH', `/api/channels/${ch.id}`, bence, { enabled: false, config: { to: 'b2@example.com' } });
++    expect(patched.json()).toEqual({ ...ch, enabled: false, config: { to: 'b2@example.com' } });
++    expect((await req('GET', `/api/channels/${ch.id}`, bence)).json()).toEqual(patched.json());
++  });
++
++  it('Review Focus 2: GET /api/channels never contains the webhook secret', async () => {
++    const res = await req('POST', '/api/channels', bence, { type: 'slack', config: { webhookUrl: SECRET_HOOK } });
++    expect(res.statusCode).toBe(201);
++    expect(res.body).not.toContain('SECRET');
++    const list = await req('GET', '/api/channels', bence);
++    expect(list.body).not.toContain('SECRET');
++    expect(list.json()[0].config.webhookUrl).toBe('https://hooks.slack.com/…/1234');
++    const patched = await req('PATCH', `/api/channels/${res.json().id}`, bence, { enabled: false });
++    expect(patched.body).not.toContain('SECRET');
++  });
++
++  // Review Focus 5
++  it.each([
++    ['slack http:// webhook', { type: 'slack', config: { webhookUrl: 'http://hooks.slack.com/services/T0/B0/xxSECRETxx' } }],
++    ['slack non-slack host', { type: 'slack', config: { webhookUrl: 'https://evil.example.com/SECRET' } }],
++    ['unknown type', { type: 'sms', config: {} }],
++    ['bad email', { type: 'email', config: { to: 'not-an-email' } }],
++  ])('POST /api/channels with %s → 400, channels count unchanged, no secret echoed', async (_l, body) => {
++    const before = count('channels');
++    const res = await req('POST', '/api/channels', bence, body);
++    expect(res.statusCode).toBe(400);
++    expect(res.json().error).toBe('invalid request');
++    expect(res.body).not.toContain('SECRET');
++    expect(count('channels')).toBe(before);
++  });
++
++  it('PATCH cannot change type; bad config → 400 and row unchanged', async () => {
++    const c = addChannel(db, bence, { type: 'slack', config: { webhookUrl: SECRET_HOOK } });
++    expect((await req('PATCH', `/api/channels/${c}`, bence, { type: 'email' })).statusCode).toBe(400);
++    expect((await req('PATCH', `/api/channels/${c}`, bence, { config: { webhookUrl: 'http://hooks.slack.com/x' } })).statusCode).toBe(400);
++    expect(db.prepare(`SELECT type, config FROM channels WHERE id = ?`).get(c)).toEqual({ type: 'slack', config: JSON.stringify({ webhookUrl: SECRET_HOOK }) });
++  });
++
++  it("another user's channel → 404 on GET/PATCH/DELETE/test", async () => {
++    const c = addChannel(db, anna);
++    for (const [m, u] of [['GET', ''], ['PATCH', ''], ['DELETE', ''], ['POST', '/test']] as const)
++      expect((await req(m, `/api/channels/${c}${u}`, bence, m === 'PATCH' ? { enabled: false } : undefined)).statusCode).toBe(404);
++    expect(count('channels')).toBe(1);
++  });
++
++  it("Review Focus 3: deleting a channel drops it from the user's rules, keeps delivery history", async () => {
++    const keep = addChannel(db, bence);
++    const gone = addChannel(db, bence);
++    const r1 = addRule(db, bence, { channelIds: [keep, gone] });
++    const r2 = addRule(db, bence, { channelIds: [gone] });
++    ingest(db, [{ source: 's', externalId: 'e', category: 'news', title: 'T', summary: null, url: null, scope: 'country', country: 'HU', severity: 0.9, occurredAt: t0.toISOString(), raw: {} }], t0);
++    expect(count('deliveries')).toBe(2); // UNIQUE(event_id, channel_id)
++
++    expect((await req('DELETE', `/api/channels/${gone}`, bence)).statusCode).toBe(204);
++    expect(channelIdsOf(r1)).toEqual([keep]);
++    expect(channelIdsOf(r2)).toEqual([]);
++    expect(count('channels')).toBe(1);
++    expect(count('deliveries')).toBe(2);
++    expect((db.prepare(`SELECT COUNT(*) AS n FROM deliveries WHERE channel_id IS NULL`).get() as any).n).toBe(1);
++  });
++
++  it('POST /:id/test sends through the adapter; errors come back as ok:false (HTTP 200)', async () => {
++    const email = addChannel(db, bence, { config: { to: 'bence@example.com' }, enabled: false });
++    expect((await req('POST', `/api/channels/${email}/test`, bence)).json()).toEqual({ ok: true });
++    const slack = addChannel(db, bence, { type: 'slack', config: { webhookUrl: SECRET_HOOK } });
++    slackStatus = 500;
++    const res = await req('POST', `/api/channels/${slack}/test`, bence);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual({ ok: false, error: 'Slack responded 500' });
++  });
++});
++
++describe('errors', () => {
++  it('malformed JSON body → 400 { error }', async () => {
++    const res = await app.inject({ method: 'POST', url: '/api/rules', headers: { ...as(bence), 'content-type': 'application/json' }, payload: '{"name":' });
++    expect(res.statusCode).toBe(400);
++    expect(res.json()).toHaveProperty('error');
++  });
++  it('unexpected error → 500 { error: internal error }, logged scrubbed, no stack', async () => {
++    app.get('/boom', async () => { throw new Error(`boom ${SECRET_HOOK}`); });
++    const res = await req('GET', '/boom', bence);
++    expect(res.statusCode).toBe(500);
++    expect(res.json()).toEqual({ error: 'internal error' });
++    expect(logs.join('\n')).toContain('boom');
++    expect(logs.join('\n')).not.toContain('SECRET');
++    expect(res.body).not.toContain('SECRET');
++  });
++});
++
++describe('GET /api/my/deliveries', () => {
++  it("returns only the user's deliveries, newest first, with event and parsed breakdown", async () => {
++    const bc = addChannel(db, bence);
++    addRule(db, bence, { channelIds: [bc] });
++    const ac = addChannel(db, anna);
++    addRule(db, anna, { channelIds: [ac] });
++    const e = (id: string, title: string) => ({ source: 's', externalId: id, category: 'disaster' as const, title, summary: null, url: 'https://x.test', scope: 'country' as const, country: 'HU', severity: 0.9, occurredAt: t0.toISOString(), raw: {} });
++    ingest(db, [e('1', 'Old')], t0);
++    ingest(db, [e('2', 'New')], new Date(t0.getTime() + 60_000));
++    const res = await req('GET', '/api/my/deliveries', bence);
++    expect(res.statusCode).toBe(200);
++    const items = res.json();
++    expect(items.map((d: any) => d.event.title)).toEqual(['New', 'Old']);
++    expect(items[0]).toEqual({
++      id: expect.any(Number), status: 'pending', attempts: 0, lastError: null, createdAt: expect.any(String), sentAt: null,
++      channelId: bc, ruleId: expect.any(Number), breakdown: expect.objectContaining({ importance: expect.any(Number), fires: true }),
++      event: { id: expect.any(Number), title: 'New', category: 'disaster', country: 'HU', scope: 'country', url: 'https://x.test', occurredAt: t0.toISOString() },
++    });
++  });
++});
+diff --git a/server/test/seed.test.ts b/server/test/seed.test.ts
+new file mode 100644
+index 0000000..7808029
+--- /dev/null
++++ b/server/test/seed.test.ts
+@@ -0,0 +1,58 @@
++import { describe, it, expect } from 'vitest';
++import { seed } from '../src/db/seed';
++import { rowToRule, rowToUser } from '../src/db/rows';
++import { sourceAdapters } from '../src/sources';
++import { makeDb } from './helpers';
++
++const HOOK = 'https://hooks.slack.com/services/T0/B0/seedSECRET';
++
++describe('seed', () => {
++  it('creates users, channels, default rules and sources', () => {
++    const db = makeDb();
++    seed(db);
++    const users = (db.prepare(`SELECT * FROM users ORDER BY id`).all()).map(rowToUser);
++    expect(users.map((u) => [u.name, u.homeCountry, u.isAdmin])).toEqual([['Anna', 'HU', true], ['Bence', 'HU', false], ['Priya', 'NP', false]]);
++
++    const channels = db.prepare(`SELECT * FROM channels ORDER BY id`).all() as any[];
++    expect(channels.map((c) => c.type)).toEqual(['email', 'email', 'email']);
++    for (const u of users) {
++      const ch = channels.find((c) => c.user_id === u.id)!;
++      expect(JSON.parse(ch.config)).toEqual({ to: u.email });
++      const rules = db.prepare(`SELECT * FROM rules WHERE user_id = ?`).all(u.id).map(rowToRule);
++      expect(rules).toHaveLength(1);
++      expect(rules[0]).toMatchObject({ categories: [], keywords: [], threshold: 0.5, channelIds: [ch.id], enabled: true });
++    }
++
++    const sources = db.prepare(`SELECT * FROM sources ORDER BY id`).all() as any[];
++    expect(sources.map((s) => [s.type, JSON.parse(s.config).feedId ?? null, JSON.parse(s.config).country ?? null])).toEqual([
++      ['gdacs', null, null], ['coingecko', null, null], ['rss', 'telex', 'HU'], ['rss', 'hvg', 'HU'], ['rss', 'bbc-world', null],
++    ]);
++    for (const s of sources) {
++      expect(s.poll_interval_s).toBe(300);
++      expect(s.enabled).toBe(1);
++      const adapter = sourceAdapters[s.type as keyof typeof sourceAdapters];
++      expect(adapter.configSchema.safeParse(JSON.parse(s.config)).success, s.name).toBe(true);
++    }
++  });
++
++  it('is idempotent: running twice still gives 3 users', () => {
++    const db = makeDb();
++    seed(db);
++    seed(db);
++    const n = (t: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as any).n;
++    expect([n('users'), n('channels'), n('rules'), n('sources')]).toEqual([3, 3, 3, 5]);
++  });
++
++  it('gives Bence a slack channel on his rule only when a webhook is provided', () => {
++    const db = makeDb();
++    seed(db, { slackWebhook: HOOK });
++    const bence = db.prepare(`SELECT id FROM users WHERE name = 'Bence'`).get() as any;
++    const slack = db.prepare(`SELECT * FROM channels WHERE type = 'slack'`).all() as any[];
++    expect(slack).toHaveLength(1);
++    expect(slack[0].user_id).toBe(bence.id);
++    expect(JSON.parse(slack[0].config)).toEqual({ webhookUrl: HOOK });
++    const rule = rowToRule(db.prepare(`SELECT * FROM rules WHERE user_id = ?`).get(bence.id));
++    expect(rule.channelIds).toContain(slack[0].id);
++    expect(rule.channelIds).toHaveLength(2);
++  });
++});

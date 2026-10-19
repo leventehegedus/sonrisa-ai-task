@@ -1,0 +1,272 @@
+# Review package: fff5f8a..HEAD
+
+## Commits
+37c0b4d fix(api): strict slack webhook schema, pollIntervalS, scheduler after listen, cwd-independent data dir
+
+## Files changed
+ server/src/channels/slack.ts    |  4 +++-
+ server/src/http/admin-routes.ts |  6 +++---
+ server/src/http/user-routes.ts  |  2 +-
+ server/src/main.ts              |  8 +++++---
+ server/test/api-admin.test.ts   |  8 ++++----
+ server/test/api-user.test.ts    | 11 +++++++++++
+ server/test/channels.test.ts    |  6 ++++++
+ 7 files changed, 33 insertions(+), 12 deletions(-)
+
+## Diff
+diff --git a/server/src/channels/slack.ts b/server/src/channels/slack.ts
+index 2033376..9ad55a8 100644
+--- a/server/src/channels/slack.ts
++++ b/server/src/channels/slack.ts
+@@ -1,16 +1,18 @@
+ import { z } from 'zod';
+ import type { ChannelAdapter } from './index';
+ 
+ export interface SlackOpts { dryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }
+ const configSchema = z.object({
+-  webhookUrl: z.url({ protocol: /^https$/ }).refine((u) => u.startsWith('https://hooks.slack.com/'), 'must be a Slack webhook URL'),
++  webhookUrl: z.url({ protocol: /^https$/ })
++    .refine((u) => u.startsWith('https://hooks.slack.com/services/'), 'must be a Slack webhook URL')
++    .refine((u) => !u.includes('…'), 'must not be the masked form'),
+ });
+ 
+ // Slack mrkdwn control chars: unescaped, feed text could inject <!channel> pings or disguised <url|label> links.
+ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+ 
+ export function slackAdapter(opts: SlackOpts): ChannelAdapter<{ webhookUrl: string }> {
+   return {
+     type: 'slack',
+     configSchema,
+     maskConfig: (config) => ({ ...config, webhookUrl: `https://hooks.slack.com/…/${config.webhookUrl.slice(-4)}` }),
+diff --git a/server/src/http/admin-routes.ts b/server/src/http/admin-routes.ts
+index a92a86c..0495b98 100644
+--- a/server/src/http/admin-routes.ts
++++ b/server/src/http/admin-routes.ts
+@@ -6,22 +6,22 @@ import { ingest } from '../pipeline/ingest';
+ import { pollSource } from '../pipeline/poll';
+ import { ManualEventInput, manualEvent } from '../sources/manual';
+ import type { AppDeps } from './app';
+ import { requireAdmin } from './auth';
+ import { IdParams, notFound } from './user-routes';
+ 
+ const EventsQuery = z.object({ limit: z.coerce.number().int().min(1).max(500).default(100) });
+ const DeliveriesQuery = z.object({ status: z.enum(['pending', 'sent', 'failed']).optional() });
+ const SourcePatch = z.strictObject({
+   enabled: z.boolean().optional(),
+-  poll_interval_s: z.number().int().min(60).max(86400).optional(),
+-}).refine((b) => b.enabled !== undefined || b.poll_interval_s !== undefined, 'at least one of enabled, poll_interval_s');
++  pollIntervalS: z.number().int().min(60).max(86400).optional(),
++}).refine((b) => b.enabled !== undefined || b.pollIntervalS !== undefined, 'at least one of enabled, pollIntervalS');
+ const InjectBody = z.strictObject(ManualEventInput.shape);
+ 
+ // Owner = the rule's user, or the channel's when the rule was deleted (both null only if both are gone).
+ const rowToAdminDelivery = (r: any) => ({ ...rowToDeliveryWithEvent(r), userId: r.owner_id as number | null });
+ 
+ export function adminRoutes(db: Database, deps: AppDeps) {
+   const q = {
+     users: db.prepare(`SELECT * FROM users ORDER BY id`),
+     rules: db.prepare(`SELECT * FROM rules ORDER BY id`),
+     events: db.prepare(`SELECT * FROM events ORDER BY id DESC LIMIT ?`),
+@@ -67,21 +67,21 @@ export function adminRoutes(db: Database, deps: AppDeps) {
+         ? reply.code(409).send({ error: 'only failed deliveries can be retried' })
+         : reply.code(404).send(notFound);
+     });
+ 
+     app.get('/sources', async () => q.sources.all().map(rowToSource));
+ 
+     app.patch('/sources/:id', async (req, reply) => {
+       const { id } = IdParams.parse(req.params);
+       const b = SourcePatch.parse(req.body);
+       const enabled = b.enabled === undefined ? null : b.enabled ? 1 : 0;
+-      if (!q.updateSource.run(enabled, b.poll_interval_s ?? null, id).changes) return reply.code(404).send(notFound);
++      if (!q.updateSource.run(enabled, b.pollIntervalS ?? null, id).changes) return reply.code(404).send(notFound);
+       return rowToSource(q.source.get(id));
+     });
+ 
+     // Manual action: polls even a disabled source. Poll failures are a normal result (200, ok:false).
+     app.post('/sources/:id/poll', async (req, reply) => {
+       const { id } = IdParams.parse(req.params);
+       if (!q.source.get(id)) return reply.code(404).send(notFound);
+       return pollSource(db, id, deps);
+     });
+   };
+diff --git a/server/src/http/user-routes.ts b/server/src/http/user-routes.ts
+index 5f5bb8c..fbe023e 100644
+--- a/server/src/http/user-routes.ts
++++ b/server/src/http/user-routes.ts
+@@ -46,21 +46,21 @@ export function userRoutes(db: Database, deps: AppDeps) {
+     channels: db.prepare(`SELECT * FROM channels WHERE user_id = ? ORDER BY id`),
+     channel: db.prepare(`SELECT * FROM channels WHERE id = ? AND user_id = ?`),
+     insertChannel: db.prepare(`INSERT INTO channels (user_id, type, config, enabled) VALUES (?, ?, ?, ?)`),
+     updateChannel: db.prepare(`UPDATE channels SET config = ?, enabled = ? WHERE id = ?`),
+     deleteChannel: db.prepare(`DELETE FROM channels WHERE id = ?`),
+     deliveries: db.prepare(
+       `SELECT d.*, ${DELIVERY_EVENT_COLUMNS}
+        FROM deliveries d JOIN events e ON e.id = d.event_id
+        LEFT JOIN channels c ON c.id = d.channel_id LEFT JOIN rules r ON r.id = d.rule_id
+        WHERE c.user_id = ? OR r.user_id = ?
+-       ORDER BY d.created_at DESC, d.id DESC LIMIT 100`,
++       ORDER BY d.created_at DESC, d.id DESC LIMIT 100`, // shortcut: fixed LIMIT 100, add pagination when history grows
+     ),
+   };
+ 
+   const getRule = (id: number, user: User) => { const r = q.rule.get(id, user.id); return r ? rowToRule(r) : null; };
+   const getChannel = (id: number, user: User) => { const r = q.channel.get(id, user.id); return r ? rowToChannel(r) : null; };
+   const ownsAll = (ids: number[], user: User) => ids.every((id) => q.channel.get(id, user.id));
+   const masked = (c: ChannelRow) => ({ id: c.id, type: c.type, config: registry[c.type]?.maskConfig(c.config) ?? {}, enabled: c.enabled });
+   /** Validates with the adapter schema (throws ZodError → 400). Email `to` defaults to the user's email. */
+   const parseConfig = (type: string, config: unknown, user: User) => {
+     const raw = type === 'email' && (config === undefined || isObject(config)) ? { to: user.email, ...(config ?? {}) } : config;
+diff --git a/server/src/main.ts b/server/src/main.ts
+index 8a7050b..b3259b0 100644
+--- a/server/src/main.ts
++++ b/server/src/main.ts
+@@ -1,38 +1,40 @@
+ import { mkdirSync } from 'node:fs';
+ import { dirname } from 'node:path';
++import { fileURLToPath } from 'node:url';
+ import { createChannelRegistry } from './channels';
+ import { openDb } from './db';
+ import { seed } from './db/seed';
+ import { buildApp } from './http/app';
+ import { startScheduler } from './pipeline/scheduler';
+ 
+ const port = Number(process.env.PORT ?? 3000);
+-const dbPath = process.env.DB_PATH ?? 'data/alerts.db';
++const dataDir = fileURLToPath(new URL('../../data/', import.meta.url)); // repo-root data/, independent of cwd
++const dbPath = process.env.DB_PATH ?? `${dataDir}alerts.db`;
+ const log = (msg: string) => console.log(`[${new Date().toISOString()}] ${msg}`);
+ const now = () => new Date();
+ 
+ mkdirSync(dirname(dbPath), { recursive: true });
+ const db = openDb(dbPath);
+ seed(db, { slackWebhook: process.env.SEED_SLACK_WEBHOOK });
+ 
+ const registry = createChannelRegistry({
+   smtpUrl: process.env.SMTP_URL,
+-  outboxDir: 'data/outbox',
++  outboxDir: `${dataDir}outbox`,
+   slackDryRun: (process.env.SLACK_DRY_RUN ?? '1') !== '0',
+   log,
+ });
+ const app = buildApp(db, { registry, fetchImpl: fetch, now, log });
+-const scheduler = startScheduler(db, { registry, fetchImpl: fetch, now, log });
+ 
+ // shortcut: binds to localhost only because X-User-Id is not authentication; add real auth before exposing it
+ await app.listen({ port, host: '127.0.0.1' });
+ log(`World Alerts API on http://127.0.0.1:${port}`);
++const scheduler = startScheduler(db, { registry, fetchImpl: fetch, now, log });
+ 
+ const shutdown = async () => {
+   scheduler.stop();
+   await app.close();
+   db.close();
+   process.exit(0);
+ };
+ process.once('SIGINT', shutdown);
+ process.once('SIGTERM', shutdown);
+diff --git a/server/test/api-admin.test.ts b/server/test/api-admin.test.ts
+index 45ef558..d95b18a 100644
+--- a/server/test/api-admin.test.ts
++++ b/server/test/api-admin.test.ts
+@@ -164,29 +164,29 @@ describe('deliveries', () => {
+ describe('sources', () => {
+   it('GET /sources lists sources with camelCase fields', async () => {
+     const res = await req('GET', '/api/admin/sources', ANNA);
+     expect(res.statusCode).toBe(200);
+     expect(res.json()).toHaveLength(5);
+     expect(res.json()[TELEX - 1]).toEqual({
+       id: TELEX, type: 'rss', name: 'Telex', config: { feedId: 'telex', url: 'https://telex.hu/rss', country: 'HU', breakingKeywords: ['rendkívüli', 'breaking'] },
+       enabled: true, pollIntervalS: 300, lastPolledAt: null, lastError: null, baselineAt: null,
+     });
+   });
+-  it('PATCH updates enabled and poll_interval_s', async () => {
+-    const res = await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, { enabled: false, poll_interval_s: 600 });
++  it('PATCH updates enabled and pollIntervalS', async () => {
++    const res = await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, { enabled: false, pollIntervalS: 600 });
+     expect(res.statusCode).toBe(200);
+     expect(res.json()).toMatchObject({ id: TELEX, enabled: false, pollIntervalS: 600 });
+     expect((await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, { enabled: true })).json()).toMatchObject({ enabled: true, pollIntervalS: 600 });
+   });
+   it.each([
+-    ['interval below 60', { poll_interval_s: 5 }], ['interval above 86400', { poll_interval_s: 86401 }],
+-    ['non-integer interval', { poll_interval_s: 60.5 }], ['empty body', {}], ['unknown key', { enabled: true, name: 'x' }],
++    ['interval below 60', { pollIntervalS: 5 }], ['interval above 86400', { pollIntervalS: 86401 }],
++    ['non-integer interval', { pollIntervalS: 60.5 }], ['empty body', {}], ['unknown key', { enabled: true, name: 'x' }],
+   ])('PATCH %s → 400, unchanged', async (_name, body) => {
+     expect((await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, body)).statusCode).toBe(400);
+     expect(db.prepare(`SELECT enabled, poll_interval_s FROM sources WHERE id = ?`).get(TELEX)).toEqual({ enabled: 1, poll_interval_s: 300 });
+   });
+   it('PATCH unknown id → 404', async () => {
+     expect((await req('PATCH', '/api/admin/sources/99', ANNA, { enabled: false })).statusCode).toBe(404);
+   });
+   it('POST /poll runs pollSource (even when disabled) and returns its result', async () => {
+     db.prepare(`UPDATE sources SET enabled = 0 WHERE id = ?`).run(TELEX);
+     const res = await req('POST', `/api/admin/sources/${TELEX}/poll`, ANNA);
+diff --git a/server/test/api-user.test.ts b/server/test/api-user.test.ts
+index 10bf15d..a2b3692 100644
+--- a/server/test/api-user.test.ts
++++ b/server/test/api-user.test.ts
+@@ -144,20 +144,31 @@ describe('channels', () => {
+     const res = await req('POST', '/api/channels', bence, { type: 'slack', config: { webhookUrl: SECRET_HOOK } });
+     expect(res.statusCode).toBe(201);
+     expect(res.body).not.toContain('SECRET');
+     const list = await req('GET', '/api/channels', bence);
+     expect(list.body).not.toContain('SECRET');
+     expect(list.json()[0].config.webhookUrl).toBe('https://hooks.slack.com/…/1234');
+     const patched = await req('PATCH', `/api/channels/${res.json().id}`, bence, { enabled: false });
+     expect(patched.body).not.toContain('SECRET');
+   });
+ 
++  it('PATCH with the masked config echoed from GET → 400, stored secret intact', async () => {
++    const created = await req('POST', '/api/channels', bence, { type: 'slack', config: { webhookUrl: SECRET_HOOK } });
++    expect(created.statusCode).toBe(201);
++    const id = created.json().id;
++    const got = await req('GET', `/api/channels/${id}`, bence);
++    expect(got.statusCode).toBe(200);
++    const patched = await req('PATCH', `/api/channels/${id}`, bence, { config: got.json().config });
++    expect(patched.statusCode).toBe(400);
++    expect(db.prepare(`SELECT config FROM channels WHERE id = ?`).get(id)).toEqual({ config: JSON.stringify({ webhookUrl: SECRET_HOOK }) });
++  });
++
+   // Review Focus 5
+   it.each([
+     ['slack http:// webhook', { type: 'slack', config: { webhookUrl: 'http://hooks.slack.com/services/T0/B0/xxSECRETxx' } }],
+     ['slack non-slack host', { type: 'slack', config: { webhookUrl: 'https://evil.example.com/SECRET' } }],
+     ['unknown type', { type: 'sms', config: {} }],
+     ['bad email', { type: 'email', config: { to: 'not-an-email' } }],
+   ])('POST /api/channels with %s → 400, channels count unchanged, no secret echoed', async (_l, body) => {
+     const before = count('channels');
+     const res = await req('POST', '/api/channels', bence, body);
+     expect(res.statusCode).toBe(400);
+diff --git a/server/test/channels.test.ts b/server/test/channels.test.ts
+index e41f587..3568ee8 100644
+--- a/server/test/channels.test.ts
++++ b/server/test/channels.test.ts
+@@ -100,20 +100,26 @@ describe('slack', () => {
+     expect(fetchImpl).not.toHaveBeenCalled();
+     expect(log).toHaveBeenCalledTimes(1);
+     expect(log.mock.calls[0][0]).toContain('Flood in Hungary');
+   });
+   it('rejects non-slack and http urls', () => {
+     const s = reg().slack.configSchema;
+     expect(s.safeParse({ webhookUrl: 'http://example.com' }).success).toBe(false);
+     expect(s.safeParse({ webhookUrl: 'https://example.com/x' }).success).toBe(false);
+     expect(s.safeParse({ webhookUrl: SLACK }).success).toBe(true);
+   });
++  it('rejects the masked form and non-/services/ paths', () => {
++    const s = reg().slack.configSchema;
++    expect(s.safeParse({ webhookUrl: 'https://hooks.slack.com/…/1234' }).success).toBe(false);
++    expect(s.safeParse({ webhookUrl: 'https://hooks.slack.com/foo' }).success).toBe(false);
++    expect(s.safeParse({ webhookUrl: 'https://hooks.slack.com/services/T0/…/1234' }).success).toBe(false);
++  });
+   it('masks to last 4 chars only', () => {
+     const m = reg().slack.maskConfig({ webhookUrl: SLACK }) as { webhookUrl: string };
+     expect(m.webhookUrl).toBe('https://hooks.slack.com/…/1234');
+     expect(m.webhookUrl).not.toContain('SECRET');
+   });
+ });
+ 
+ describe('scrubSecrets', () => {
+   const cfg = { webhookUrl: SLACK };
+   it('removes every occurrence', () => {
