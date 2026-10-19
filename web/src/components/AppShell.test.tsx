@@ -79,16 +79,17 @@ describe('AppShell', () => {
 
     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
     fireEvent.click((await screen.findAllByRole('option'))[1])
+    expect(await screen.findByText(/DE/)).toBeTruthy()
     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
-    expect((await screen.findByRole('tab', { name: 'My alerts' })).getAttribute('aria-selected')).toBe('true')
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true'))
     expect(await screen.findByText('No rules yet.')).toBeTruthy()
 
     // switching back to the admin must not resurrect the Admin tab
     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
     fireEvent.click((await screen.findAllByRole('option'))[0])
     await screen.findByRole('tab', { name: 'Admin' })
-    expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false')
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true'))
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false'))
   })
 
   it('keeps the Admin tab when switching from one admin to another while /me reloads', async () => {
