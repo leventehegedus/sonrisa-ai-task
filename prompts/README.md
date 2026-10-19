@@ -24,4 +24,5 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 003 | [Log all prompts, branch per feature, skill install](003-log-all-prompts-branching-skill-install.md) | `d0ff1bf` |
 | 004 | [Reload plugins](004-reload-plugins.md) | `6875ac3` |
 | 005 | ["Let's start planning"](005-start-planning-go.md) | `e55c1b1` |
-| 006 | [Stack choice](006-stack-choice.md) | _pending_ |
+| 006 | [Stack choice](006-stack-choice.md) | `e2e84d8` |
+| 007 | [Confirm guesses + region weighting](007-confirm-guesses-region-weighting.md) | _pending_ |

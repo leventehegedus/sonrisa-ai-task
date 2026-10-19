@@ -27,4 +27,4 @@ the frontend should be react with the following:
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`e2e84d8` — docs: log prompt 006, record stack decisions D-005/D-006
