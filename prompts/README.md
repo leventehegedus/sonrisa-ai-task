@@ -27,4 +27,5 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 006 | [Stack choice](006-stack-choice.md) | `e2e84d8` |
 | 007 | [Confirm guesses + region weighting](007-confirm-guesses-region-weighting.md) | `2fce833` |
 | 008 | [Far-away critical events + builder check](008-far-away-critical-events-and-builder-check.md) | `89fec52` |
-| 009 | [Approve design, write plan + CLAUDE.md](009-approve-design-write-plan.md) | _pending_ |
+| 009 | [Approve design, write plan + CLAUDE.md](009-approve-design-write-plan.md) | `02ece55` |
+| 010 | [Execute subagent-driven; merge planning](010-execute-subagent-driven-merge.md) | _pending_ |

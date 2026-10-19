@@ -34,4 +34,4 @@ it's perfect, pls go on
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`02ece55` — docs: approve design, add plan of attack, TDD implementation plan, CLAUDE.md
