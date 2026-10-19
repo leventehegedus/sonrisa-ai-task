@@ -23,3 +23,11 @@ export type MyDelivery = {
   breakdown: ScoreBreakdown
   event: { id: number; title: string; category: Category; country: string | null; scope: string; url: string | null; occurredAt: string }
 }
+export type AdminRule = Rule & { userId: number }
+export type AdminDelivery = MyDelivery & { userId: number | null }
+export type EventRow = { id: number; source: string; externalId: string; category: Category; title: string; summary: string | null; url: string | null; country: string | null; scope: string; severity: number; occurredAt: string }
+export type Source = { id: number; type: string; name: string; enabled: boolean; pollIntervalS: number; lastPolledAt: string | null; lastError: string | null; baselineAt: string | null }
+export type SourcePatch = { id: number; enabled?: boolean; pollIntervalS?: number }
+export type PollResult = { ok: boolean; inserted: number; error?: string }
+export type InjectInput = { category: Category; title: string; summary?: string; url?: string; country?: string; severity: number }
+export type InjectResult = { event: EventRow; deliveriesCreated: number }

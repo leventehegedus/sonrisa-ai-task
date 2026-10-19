@@ -1,5 +1,8 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
-import type { Channel, ChannelInput, ChannelPatch, Me, MyDelivery, Rule, RuleInput, TestResult, UserSummary } from './types'
+import type {
+  AdminDelivery, AdminRule, Channel, ChannelInput, ChannelPatch, EventRow, InjectInput, InjectResult, Me, MyDelivery, PollResult, Rule, RuleInput,
+  Source, SourcePatch, TestResult, UserSummary,
+} from './types'
 
 export const api = createApi({
   reducerPath: 'api',
@@ -34,6 +37,30 @@ export const api = createApi({
     }),
     testChannel: build.mutation<TestResult, number>({ query: (id) => ({ url: `/channels/${id}/test`, method: 'POST' }) }),
     getMyDeliveries: build.query<MyDelivery[], void>({ query: () => '/my/deliveries', providesTags: ['MyDeliveries'] }),
+    getAdminUsers: build.query<Me[], void>({ query: () => '/admin/users', providesTags: ['AdminUsers'] }),
+    getAdminRules: build.query<AdminRule[], void>({ query: () => '/admin/rules', providesTags: ['AdminRules'] }),
+    getEvents: build.query<EventRow[], void>({ query: () => '/admin/events?limit=100', providesTags: ['Events'] }),
+    getDeliveries: build.query<AdminDelivery[], string | void>({
+      query: (status) => (status ? `/admin/deliveries?status=${status}` : '/admin/deliveries'),
+      providesTags: ['Deliveries'],
+    }),
+    retryDelivery: build.mutation<AdminDelivery, number>({
+      query: (id) => ({ url: `/admin/deliveries/${id}/retry`, method: 'POST' }),
+      invalidatesTags: ['Deliveries', 'MyDeliveries'],
+    }),
+    getSources: build.query<Source[], void>({ query: () => '/admin/sources', providesTags: ['Sources'] }),
+    updateSource: build.mutation<Source, SourcePatch>({
+      query: ({ id, ...body }) => ({ url: `/admin/sources/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Sources'],
+    }),
+    pollSource: build.mutation<PollResult, number>({
+      query: (id) => ({ url: `/admin/sources/${id}/poll`, method: 'POST' }),
+      invalidatesTags: ['Sources', 'Events'],
+    }),
+    injectEvent: build.mutation<InjectResult, InjectInput>({
+      query: (body) => ({ url: '/admin/events', method: 'POST', body }),
+      invalidatesTags: ['Events', 'Deliveries', 'MyDeliveries'],
+    }),
   }),
 })
 
@@ -50,6 +77,15 @@ export const {
   useDeleteChannelMutation,
   useTestChannelMutation,
   useGetMyDeliveriesQuery,
+  useGetAdminUsersQuery,
+  useGetAdminRulesQuery,
+  useGetEventsQuery,
+  useGetDeliveriesQuery,
+  useRetryDeliveryMutation,
+  useGetSourcesQuery,
+  useUpdateSourceMutation,
+  usePollSourceMutation,
+  useInjectEventMutation,
 } = api
 
 /** Message for a failed RTK Query call: the API's `error` plus any zod issue messages. */

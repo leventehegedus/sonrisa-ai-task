@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useGetMeQuery } from '@/api'
 import UserSwitcher from '@/components/UserSwitcher'
+import AdminLayout from '@/pages/admin/AdminLayout'
 import Channels from '@/pages/Channels'
 import History from '@/pages/History'
 import Rules from '@/pages/Rules'
@@ -14,13 +15,14 @@ const tabs = [
   { value: 'channels', label: 'Channels', content: <Channels /> },
   { value: 'history', label: 'History', content: <History /> },
 ]
-const adminTab = { value: 'admin', label: 'Admin', content: <>Coming in Task 13</> }
+const adminTab = { value: 'admin', label: 'Admin', content: <AdminLayout /> }
 
 export default function AppShell() {
   const { data: me, error, refetch } = useGetMeQuery()
   const [tab, setTab] = useState('alerts')
   const visible = me?.isAdmin ? [...tabs, adminTab] : tabs
-  const active = visible.some((t) => t.value === tab) ? tab : 'alerts' // Admin tab vanishes on switch to non-admin
+  // Admin tab vanishes on switch to non-admin; while `me` reloads (undefined) keep the tab so admin->admin switches don't lose it
+  const active = !me || visible.some((t) => t.value === tab) ? tab : 'alerts'
   if (active !== tab) setTab(active) // forget the vanished tab so switching back to an admin doesn't resurrect it
 
   let status = <span className="text-muted-foreground">Connecting…</span>
