@@ -20,4 +20,4 @@ here is my webhook url, go on with it
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`61f219b` (merge of `docs/slack-verified`)
