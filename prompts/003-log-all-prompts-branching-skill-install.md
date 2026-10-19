@@ -25,4 +25,4 @@ Pls also add step by step how to install the ponytail and caveman if you cannot 
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`d0ff1bf` — docs: log prompts 002-003, add skill setup guide, adopt branch-per-feature

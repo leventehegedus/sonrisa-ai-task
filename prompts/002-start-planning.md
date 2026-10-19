@@ -27,4 +27,4 @@ https://github.com/dietrichgebert/ponytail
 
 ## Commit
 
-Committed together with prompt 003 (see the index).
+`d0ff1bf` (shared with prompt 003)
