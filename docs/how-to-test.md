@@ -110,7 +110,7 @@ The API only ever shows the webhook masked (`https://hooks.slack.com/…/ZZZZ`).
 
 ## 5. Real email (optional)
 
-Set `SMTP_URL` (for example `smtp://user:pass@smtp.example.com:587`) before starting. Without it, emails go to `data/outbox/*.json`.
+Set `SMTP_URL` before starting; see [`email-setup.md`](email-setup.md). Without it, emails go to `data/outbox/*.json`.
 
 ## What you can't test yet
 

@@ -46,4 +46,5 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 025 | [Gmail App password: real email verified](025-gmail-app-password-test.md) | `9e1f929` |
 | 026 | [Slack: step-by-step setup](026-slack-step-by-step.md) | `60b6695` |
 | 027 | [Slack webhook: real delivery test](027-slack-webhook-test.md) | `61f219b` |
-| 028 | [Slack confirmed; Gmail password to be revoked](028-slack-confirmed.md) | _pending_ |
+| 028 | [Slack confirmed; Gmail password to be revoked](028-slack-confirmed.md) | `edbaca1` |
+| 029 | [Remove SMTP_URL; email-setup guide](029-remove-smtp-url-email-guide.md) | _pending_ |
