@@ -19,4 +19,4 @@ Pending the user's answer.
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`68400c6` — docs: log prompt 015, backfill 013-014 hashes

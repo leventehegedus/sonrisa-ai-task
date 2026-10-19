@@ -33,4 +33,5 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 012 | [Wider summary with explanations, then continue](012-progress-summary-and-continue.md) | `0350486` … `a785991` |
 | 013 | [Explain the second interruption](013-second-interruption.md) | `c9e877d` |
 | 014 | [Finish Task 11 or wait; how to test](014-how-to-test-and-pause.md) | `c9e877d` |
-| 015 | [Break down Task 11 to rethink it](015-break-down-task-11.md) | _pending_ |
+| 015 | [Break down Task 11 to rethink it](015-break-down-task-11.md) | `68400c6` |
+| 016 | [Split Task 11; do 11a, skip Redux](016-split-task-11-do-11a.md) | _pending_ |
