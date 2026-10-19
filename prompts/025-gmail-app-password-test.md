@@ -20,4 +20,4 @@ here is the password I got, go on with it: [REDACTED — Gmail App password, 16 
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`9e1f929` (merge of `docs/real-email-verified`)
