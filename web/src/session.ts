@@ -31,7 +31,7 @@ export const { setUser } = sessionSlice.actions
 export default sessionSlice.reducer
 
 export const switchUser =
-  (id: number): ThunkAction<void, unknown, unknown, UnknownAction> =>
+  (id: number): ThunkAction<void, unknown, undefined, UnknownAction> =>
   (dispatch) => {
     dispatch(setUser(id))
     dispatch(api.util.resetApiState())

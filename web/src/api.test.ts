@@ -20,7 +20,7 @@ describe('api session header', () => {
     expect(fetchMock.mock.calls[0][0].headers.get('X-User-Id')).toBe('1')
     expect(api.endpoints.getMe.select()(store.getState()).data).toEqual(me)
 
-    store.dispatch(switchUser(2) as never)
+    store.dispatch(switchUser(2))
     expect(api.endpoints.getMe.select()(store.getState()).data).toBeUndefined()
 
     await store.dispatch(api.endpoints.getMe.initiate())
