@@ -29,5 +29,7 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 008 | [Far-away critical events + builder check](008-far-away-critical-events-and-builder-check.md) | `89fec52` |
 | 009 | [Approve design, write plan + CLAUDE.md](009-approve-design-write-plan.md) | `02ece55` |
 | 010 | [Execute subagent-driven; merge planning](010-execute-subagent-driven-merge.md) | `b4a93f7` … `8a9ed68` |
-| 011 | [What caused the interruption? Status of tasks](011-interruption-and-status.md) | _pending_ |
-| 012 | [Wider summary with explanations, then continue](012-progress-summary-and-continue.md) | _pending_ |
+| 011 | [What caused the interruption? Status of tasks](011-interruption-and-status.md) | `0350486` |
+| 012 | [Wider summary with explanations, then continue](012-progress-summary-and-continue.md) | `0350486` … `a785991` |
+| 013 | [Explain the second interruption](013-second-interruption.md) | _pending_ |
+| 014 | [Finish Task 11 or wait; how to test](014-how-to-test-and-pause.md) | _pending_ |
