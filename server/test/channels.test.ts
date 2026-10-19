@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { sanitizeTo } from '../src/channels/email';
 import { createChannelRegistry, buildMessage, scrubSecrets, type AlertMessage } from '../src/channels';
 import type { EventRow, ScoreBreakdown } from '../src/types';
 
@@ -24,19 +25,29 @@ describe('email', () => {
     expect(body).toContain('because');
     expect(body).toContain('https://example.com/a');
   });
-  it('rejects or sanitizes filename-hostile addresses, never writing outside outbox', async () => {
-    const r = reg();
-    const parsed = r.email.configSchema.safeParse({ to: 'a/../b@x.io' });
-    if (parsed.success) await r.email.send(parsed.data, msg);
-    const out = path.join(dir, 'outbox');
-    const inOut = fs.existsSync(out) ? fs.readdirSync(out) : [];
-    for (const f of inOut) expect(f).not.toMatch(/[\\/]/);
-    expect(fs.readdirSync(dir).filter((f) => f !== 'outbox')).toEqual([]);
+  it('schema rejects a/../b@x.io', () => {
+    expect(reg().email.configSchema.safeParse({ to: 'a/../b@x.io' }).success).toBe(false);
   });
-  it('sanitizes a hostile to directly', async () => {
-    await reg().email.send({ to: '../../evil' }, msg);
+  it('sanitizeTo yields the exact safe part for a traversal', () => {
+    expect(sanitizeTo('../../../x/evil')).toBe('.._.._.._x_evil');
+  });
+  it('send with a hostile to writes only inside outbox with sanitized name', async () => {
+    await reg().email.send({ to: '../../../x/evil' }, msg);
     expect(fs.readdirSync(dir)).toEqual(['outbox']);
-    expect(fs.readdirSync(path.join(dir, 'outbox'))[0]).not.toContain('/');
+    const [f] = fs.readdirSync(path.join(dir, 'outbox'));
+    expect(f).toMatch(/^\d+-[0-9a-f]{8}-\.\._\.\._\.\._x_evil\.json$/);
+  });
+  it('two back-to-back sends to one address make two files', async () => {
+    const r = reg();
+    await r.email.send({ to: 'a@x.io' }, msg);
+    await r.email.send({ to: 'a@x.io' }, msg);
+    expect(fs.readdirSync(path.join(dir, 'outbox'))).toHaveLength(2);
+  });
+  it('logs a line in outbox mode', async () => {
+    const log = vi.fn();
+    await reg({ log }).email.send({ to: 'a@x.io' }, msg);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0][0]).toMatch(/^email \(outbox\) to=a@x\.io subject=\[World Alerts\] Flood in Hungary file=.+\.json$/);
   });
   it('validates email and returns to unmasked', () => {
     const e = reg().email;
@@ -61,6 +72,17 @@ describe('slack', () => {
     const fetchImpl = vi.fn(async () => new Response('no', { status: 500 }));
     const err = await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg).catch((e) => e);
     expect(err.message).toBe('Slack responded 500');
+    expect(err.message).not.toContain('SECRET');
+  });
+  it('passes an abort signal to fetch', async () => {
+    const fetchImpl = vi.fn(async () => new Response('ok'));
+    await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg);
+    expect((fetchImpl.mock.calls[0] as any)[1].signal).toBeInstanceOf(AbortSignal);
+  });
+  it('wraps fetch rejections without leaking the url', async () => {
+    const fetchImpl = vi.fn(async () => { throw new TypeError(`fail ${SLACK}`); });
+    const err = await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg).catch((e) => e);
+    expect(err.message).toBe('Slack request failed: TypeError');
     expect(err.message).not.toContain('SECRET');
   });
   it('dry-run logs and does not fetch', async () => {

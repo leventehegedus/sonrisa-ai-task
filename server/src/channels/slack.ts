@@ -14,11 +14,17 @@ export function slackAdapter(opts: SlackOpts): ChannelAdapter<{ webhookUrl: stri
     async send(config, msg) {
       const text = [`*${msg.title}*`, msg.summary, msg.reason, msg.url].filter(Boolean).join('\n');
       if (opts.dryRun) return opts.log(`[slack dry-run] ${text}`);
-      const res = await (opts.fetchImpl ?? fetch)(config.webhookUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
+      let res: Response;
+      try {
+        res = await (opts.fetchImpl ?? fetch)(config.webhookUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text }),
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch (err) {
+        throw new Error(`Slack request failed: ${err instanceof Error ? err.name : 'Error'}`);
+      }
       if (!res.ok) throw new Error(`Slack responded ${res.status}`);
     },
   };

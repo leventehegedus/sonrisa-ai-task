@@ -22,7 +22,7 @@ export function scrubSecrets(text: string, config: unknown): string {
 
 export function createChannelRegistry(opts: { smtpUrl?: string; outboxDir: string; slackDryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }): Record<'email' | 'slack', ChannelAdapter<any>> {
   return {
-    email: emailAdapter({ smtpUrl: opts.smtpUrl, outboxDir: opts.outboxDir }),
+    email: emailAdapter({ smtpUrl: opts.smtpUrl, outboxDir: opts.outboxDir, log: opts.log }),
     slack: slackAdapter({ dryRun: opts.slackDryRun, fetchImpl: opts.fetchImpl, log: opts.log }),
   };
 }
