@@ -1,0 +1,326 @@
+4213c6a feat(web): user switcher and app shell with tabs
+ docs/evidence/m3-web-connection.md   |  18 ++++
+ web/src/App.tsx                      |  28 +-----
+ web/src/api.test.ts                  |   2 +-
+ web/src/components/AppShell.test.tsx |  76 ++++++++++++++
+ web/src/components/AppShell.tsx      |  62 ++++++++++++
+ web/src/components/UserSwitcher.tsx  |  26 +++++
+ web/src/components/ui/badge.tsx      |  48 +++++++++
+ web/src/components/ui/select.tsx     | 189 +++++++++++++++++++++++++++++++++++
+ web/src/components/ui/tabs.tsx       |  89 +++++++++++++++++
+ web/src/session.ts                   |   2 +-
+ web/vite.config.ts                   |   2 +-
+ 11 files changed, 513 insertions(+), 29 deletions(-)
+diff --git a/docs/evidence/m3-web-connection.md b/docs/evidence/m3-web-connection.md
+index f4a0536..9492851 100644
+--- a/docs/evidence/m3-web-connection.md
++++ b/docs/evidence/m3-web-connection.md
+@@ -10,10 +10,28 @@ $ curl -s localhost:5173/ | head -5
+ <!doctype html>
+ <html lang="en">
+   <head>
+     <script type="module">import { injectIntoGlobalHook } from "/@react-refresh";
+ injectIntoGlobalHook(window);
+ ```
+ 
+ Dev log: `[server] World Alerts API on http://127.0.0.1:3000`, `[web] VITE v8.3.4 ready in 142 ms ... http://localhost:5173/`.
+ 
+ Shutdown: killed PIDs from `lsof -tiTCP:3000` and `lsof -tiTCP:5173` (web reported exit 143 = SIGTERM, expected). `lsof -iTCP:3000 -iTCP:5173 -sTCP:LISTEN` printed nothing (no listeners). Repo-root `data/` was not created (temp DB_PATH used).
++
++# M3 Task 11c: user switcher and app shell (real run)
++
++The user's own instance (:3000, `data/alerts.db`) was left alone. Isolated ports and a temp DB:
++
++```
++$ DB_PATH=$(mktemp -d)/x.db PORT=3001 npm run start -w server        # background
++[2026-10-19T21:48:05.675Z] World Alerts API on http://127.0.0.1:3001
++$ API_TARGET=http://localhost:3001 npm run dev -w web -- --port 5174 --strictPort   # background
++  VITE v8.3.4  ready in 176 ms   ➜  Local: http://localhost:5174/
++
++$ curl -s localhost:5174/api/users -H 'X-User-Id: 2'
++[{"id":1,"name":"Anna"},{"id":2,"name":"Bence"},{"id":3,"name":"Priya"}]
++$ curl -s localhost:5174/api/me -H 'X-User-Id: 2'
++{"id":2,"name":"Bence","email":"bence@example.com","homeCountry":"HU","isAdmin":false}
++```
++
++Shutdown: killed only PIDs 75865 (:3001) and 75863 (:5174). `lsof -iTCP:3001 -iTCP:5174 -sTCP:LISTEN` printed nothing. The pre-existing :3000 listener (PID 74488) and `data/` were not touched.
+diff --git a/web/src/App.tsx b/web/src/App.tsx
+index a13a87f..42d88ab 100644
+--- a/web/src/App.tsx
++++ b/web/src/App.tsx
+@@ -1,29 +1,5 @@
+-import { Button } from '@/components/ui/button'
+-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+-import { useGetMeQuery } from './api'
++import AppShell from '@/components/AppShell'
+ 
+ export default function App() {
+-  const { data: me, error, refetch } = useGetMeQuery()
+-
+-  let text = 'Connecting…'
+-  if (me) {
+-    text = `Connected to API as ${me.name} (${me.homeCountry}${me.isAdmin ? ', admin' : ''})`
+-  } else if (error) {
+-    const reason = 'status' in error ? `HTTP ${error.status}` : (error.message ?? 'unknown error')
+-    text = `API not reachable: ${reason}`
+-  }
+-
+-  return (
+-    <main className="flex min-h-screen items-center justify-center p-4">
+-      <Card className="w-full max-w-md">
+-        <CardHeader>
+-          <CardTitle>World Alerts</CardTitle>
+-        </CardHeader>
+-        <CardContent className="flex flex-col items-start gap-4">
+-          <p>{text}</p>
+-          <Button onClick={() => refetch()}>Retry</Button>
+-        </CardContent>
+-      </Card>
+-    </main>
+-  )
++  return <AppShell />
+ }
+diff --git a/web/src/api.test.ts b/web/src/api.test.ts
+index 34c968d..c159e7f 100644
+--- a/web/src/api.test.ts
++++ b/web/src/api.test.ts
+@@ -13,17 +13,17 @@ function mockFetch() {
+ afterEach(() => vi.unstubAllGlobals())
+ 
+ describe('api session header', () => {
+   it('sends X-User-Id 1, then 2 after switchUser, and drops the cached state', async () => {
+     const fetchMock = mockFetch()
+     const store = makeStore()
+     await store.dispatch(api.endpoints.getMe.initiate())
+     expect(fetchMock.mock.calls[0][0].headers.get('X-User-Id')).toBe('1')
+     expect(api.endpoints.getMe.select()(store.getState()).data).toEqual(me)
+ 
+-    store.dispatch(switchUser(2) as never)
++    store.dispatch(switchUser(2))
+     expect(api.endpoints.getMe.select()(store.getState()).data).toBeUndefined()
+ 
+     await store.dispatch(api.endpoints.getMe.initiate())
+     expect(fetchMock.mock.calls[1][0].headers.get('X-User-Id')).toBe('2')
+   })
+ })
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+new file mode 100644
+index 0000000..3ccb98a
+--- /dev/null
++++ b/web/src/components/AppShell.test.tsx
+@@ -0,0 +1,76 @@
++import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { Provider } from 'react-redux'
++import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
++import { setUser } from '@/session'
++import { makeStore } from '@/store'
++import AppShell from './AppShell'
++
++const users = [
++  { id: 1, name: 'Anna' },
++  { id: 2, name: 'Bela' },
++  { id: 3, name: 'Cili' },
++]
++const meById: Record<string, object> = {
++  '1': { id: 1, name: 'Anna', email: 'a@x', homeCountry: 'HU', isAdmin: true },
++  '2': { id: 2, name: 'Bela', email: 'b@x', homeCountry: 'DE', isAdmin: false },
++}
++
++function mockFetch() {
++  vi.stubGlobal(
++    'fetch',
++    vi.fn(async (req: Request) => {
++      const body = req.url.endsWith('/api/users') ? users : meById[req.headers.get('X-User-Id') ?? '']
++      return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
++    }),
++  )
++}
++
++// jsdom lacks these; Radix Select calls them when opening
++beforeAll(() => {
++  Element.prototype.hasPointerCapture = () => false
++  Element.prototype.releasePointerCapture = () => {}
++  Element.prototype.scrollIntoView = () => {}
++})
++afterEach(() => {
++  cleanup()
++  vi.unstubAllGlobals()
++  localStorage.clear()
++})
++
++function renderShell(userId: number) {
++  mockFetch()
++  const store = makeStore()
++  store.dispatch(setUser(userId))
++  render(
++    <Provider store={store}>
++      <AppShell />
++    </Provider>,
++  )
++}
++
++describe('AppShell', () => {
++  it('shows the Admin tab for an admin', async () => {
++    renderShell(1)
++    expect(await screen.findByRole('tab', { name: 'Admin' })).toBeTruthy()
++    expect(screen.getByRole('tab', { name: 'My alerts' })).toBeTruthy()
++    expect(screen.getByText(/HU/)).toBeTruthy()
++  })
++
++  it('hides the Admin tab for a non-admin', async () => {
++    renderShell(2)
++    expect(await screen.findByRole('tab', { name: 'History' })).toBeTruthy()
++    expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull()
++  })
++
++  it('lists the 3 users in the switcher and switching user re-fetches /me', async () => {
++    renderShell(1)
++    await screen.findByRole('tab', { name: 'Admin' })
++    fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
++    const options = await screen.findAllByRole('option')
++    expect(options.map((o) => o.textContent)).toEqual(['Anna', 'Bela', 'Cili'])
++
++    fireEvent.click(options[1])
++    await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
++    expect(await screen.findByText(/DE/)).toBeTruthy()
++  })
++})
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+new file mode 100644
+index 0000000..63cce1e
+--- /dev/null
++++ b/web/src/components/AppShell.tsx
+@@ -0,0 +1,62 @@
++import { useGetMeQuery } from '@/api'
++import UserSwitcher from '@/components/UserSwitcher'
++import { Badge } from '@/components/ui/badge'
++import { Button } from '@/components/ui/button'
++import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
++
++const tabs = [
++  { value: 'alerts', label: 'My alerts', todo: 'Task 12' },
++  { value: 'channels', label: 'Channels', todo: 'Task 12' },
++  { value: 'history', label: 'History', todo: 'Task 12' },
++]
++const adminTab = { value: 'admin', label: 'Admin', todo: 'Task 13' }
++
++export default function AppShell() {
++  const { data: me, error, refetch } = useGetMeQuery()
++  const visible = me?.isAdmin ? [...tabs, adminTab] : tabs
++
++  let status = <span className="text-muted-foreground">Connecting…</span>
++  if (me) {
++    status = (
++      <span>
++        {me.name} ({me.homeCountry}) {me.isAdmin && <Badge>admin</Badge>}
++      </span>
++    )
++  } else if (error) {
++    const reason = 'status' in error ? `HTTP ${error.status}` : (error.message ?? 'unknown error')
++    status = (
++      <span className="flex items-center gap-2 text-destructive">
++        API not reachable: {reason}
++        <Button size="sm" variant="outline" onClick={() => refetch()}>
++          Retry
++        </Button>
++      </span>
++    )
++  }
++
++  return (
++    <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 p-4">
++      <header className="flex flex-wrap items-center justify-between gap-2">
++        <h1 className="text-xl font-semibold">World Alerts</h1>
++        <div className="flex items-center gap-3">
++          {status}
++          <UserSwitcher />
++        </div>
++      </header>
++      <Tabs defaultValue="alerts">
++        <TabsList>
++          {visible.map((t) => (
++            <TabsTrigger key={t.value} value={t.value}>
++              {t.label}
++            </TabsTrigger>
++          ))}
++        </TabsList>
++        {visible.map((t) => (
++          <TabsContent key={t.value} value={t.value}>
++            Coming in {t.todo}
++          </TabsContent>
++        ))}
++      </Tabs>
++    </div>
++  )
++}
+diff --git a/web/src/components/UserSwitcher.tsx b/web/src/components/UserSwitcher.tsx
+new file mode 100644
+index 0000000..4f9b473
+--- /dev/null
++++ b/web/src/components/UserSwitcher.tsx
+@@ -0,0 +1,26 @@
++import { useGetUsersQuery } from '@/api'
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
++import { switchUser } from '@/session'
++import { useAppDispatch, useAppSelector } from '@/store'
++
++// shortcut: dev user switcher stands in for login, replace with real auth
++export default function UserSwitcher() {
++  const dispatch = useAppDispatch()
++  const userId = useAppSelector((s) => s.session.userId)
++  const { data: users = [] } = useGetUsersQuery()
++
++  return (
++    <Select value={String(userId)} onValueChange={(v) => dispatch(switchUser(Number(v)))}>
++      <SelectTrigger className="w-40" aria-label="Switch user">
++        <SelectValue />
++      </SelectTrigger>
++      <SelectContent>
++        {users.map((u) => (
++          <SelectItem key={u.id} value={String(u.id)}>
++            {u.name}
++          </SelectItem>
++        ))}
++      </SelectContent>
++    </Select>
++  )
++}
+diff --git a/web/src/session.ts b/web/src/session.ts
+index 0d8fb94..4545723 100644
+--- a/web/src/session.ts
++++ b/web/src/session.ts
+@@ -24,15 +24,15 @@ const sessionSlice = createSlice({
+         // storage unavailable: the selection just won't persist
+       }
+     },
+   },
+ })
+ 
+ export const { setUser } = sessionSlice.actions
+ export default sessionSlice.reducer
+ 
+ export const switchUser =
+-  (id: number): ThunkAction<void, unknown, unknown, UnknownAction> =>
++  (id: number): ThunkAction<void, unknown, undefined, UnknownAction> =>
+   (dispatch) => {
+     dispatch(setUser(id))
+     dispatch(api.util.resetApiState())
+   }
+diff --git a/web/vite.config.ts b/web/vite.config.ts
+index 1c885b4..337d3d1 100644
+--- a/web/vite.config.ts
++++ b/web/vite.config.ts
+@@ -2,12 +2,12 @@ import { fileURLToPath } from 'node:url'
+ import tailwindcss from '@tailwindcss/vite'
+ import react from '@vitejs/plugin-react'
+ import { defineConfig } from 'vite'
+ 
+ // https://vite.dev/config/
+ export default defineConfig({
+   plugins: [react(), tailwindcss()],
+   resolve: {
+     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+   },
+-  server: { proxy: { '/api': 'http://localhost:3000' } },
++  server: { proxy: { '/api': process.env.API_TARGET ?? 'http://localhost:3000' } },
+ })

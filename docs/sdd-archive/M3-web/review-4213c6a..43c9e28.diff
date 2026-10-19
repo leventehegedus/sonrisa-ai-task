@@ -1,0 +1,126 @@
+# Review package: 4213c6a..HEAD
+
+## Commits
+43c9e28 fix(web): fall back to My alerts when Admin tab disappears; user select placeholder
+
+## Files changed
+ web/src/components/AppShell.test.tsx | 14 ++++++++++++++
+ web/src/components/AppShell.tsx      |  5 ++++-
+ web/src/components/UserSwitcher.tsx  |  2 +-
+ 3 files changed, 19 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+index 3ccb98a..fbdfec4 100644
+--- a/web/src/components/AppShell.test.tsx
++++ b/web/src/components/AppShell.test.tsx
+@@ -66,11 +66,25 @@ describe('AppShell', () => {
+     renderShell(1)
+     await screen.findByRole('tab', { name: 'Admin' })
+     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+     const options = await screen.findAllByRole('option')
+     expect(options.map((o) => o.textContent)).toEqual(['Anna', 'Bela', 'Cili'])
+ 
+     fireEvent.click(options[1])
+     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
+     expect(await screen.findByText(/DE/)).toBeTruthy()
+   })
++
++  it('falls back to My alerts when the active Admin tab disappears after switching to a non-admin', async () => {
++    renderShell(1)
++    const admin = await screen.findByRole('tab', { name: 'Admin' })
++    fireEvent.mouseDown(admin)
++    fireEvent.click(admin)
++    expect(await screen.findByText('Coming in Task 13')).toBeTruthy()
++
++    fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
++    fireEvent.click((await screen.findAllByRole('option'))[1])
++    await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
++    expect((await screen.findByRole('tab', { name: 'My alerts' })).getAttribute('aria-selected')).toBe('true')
++    expect(screen.getByRole('tabpanel').textContent).toBe('Coming in Task 12')
++  })
+ })
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+index 63cce1e..8ec8791 100644
+--- a/web/src/components/AppShell.tsx
++++ b/web/src/components/AppShell.tsx
+@@ -1,26 +1,29 @@
++import { useState } from 'react'
+ import { useGetMeQuery } from '@/api'
+ import UserSwitcher from '@/components/UserSwitcher'
+ import { Badge } from '@/components/ui/badge'
+ import { Button } from '@/components/ui/button'
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+ 
+ const tabs = [
+   { value: 'alerts', label: 'My alerts', todo: 'Task 12' },
+   { value: 'channels', label: 'Channels', todo: 'Task 12' },
+   { value: 'history', label: 'History', todo: 'Task 12' },
+ ]
+ const adminTab = { value: 'admin', label: 'Admin', todo: 'Task 13' }
+ 
+ export default function AppShell() {
+   const { data: me, error, refetch } = useGetMeQuery()
++  const [tab, setTab] = useState('alerts')
+   const visible = me?.isAdmin ? [...tabs, adminTab] : tabs
++  const active = visible.some((t) => t.value === tab) ? tab : 'alerts' // Admin tab vanishes on switch to non-admin
+ 
+   let status = <span className="text-muted-foreground">Connecting…</span>
+   if (me) {
+     status = (
+       <span>
+         {me.name} ({me.homeCountry}) {me.isAdmin && <Badge>admin</Badge>}
+       </span>
+     )
+   } else if (error) {
+     const reason = 'status' in error ? `HTTP ${error.status}` : (error.message ?? 'unknown error')
+@@ -36,21 +39,21 @@ export default function AppShell() {
+ 
+   return (
+     <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 p-4">
+       <header className="flex flex-wrap items-center justify-between gap-2">
+         <h1 className="text-xl font-semibold">World Alerts</h1>
+         <div className="flex items-center gap-3">
+           {status}
+           <UserSwitcher />
+         </div>
+       </header>
+-      <Tabs defaultValue="alerts">
++      <Tabs value={active} onValueChange={setTab}>
+         <TabsList>
+           {visible.map((t) => (
+             <TabsTrigger key={t.value} value={t.value}>
+               {t.label}
+             </TabsTrigger>
+           ))}
+         </TabsList>
+         {visible.map((t) => (
+           <TabsContent key={t.value} value={t.value}>
+             Coming in {t.todo}
+diff --git a/web/src/components/UserSwitcher.tsx b/web/src/components/UserSwitcher.tsx
+index 4f9b473..0e2b136 100644
+--- a/web/src/components/UserSwitcher.tsx
++++ b/web/src/components/UserSwitcher.tsx
+@@ -5,21 +5,21 @@ import { useAppDispatch, useAppSelector } from '@/store'
+ 
+ // shortcut: dev user switcher stands in for login, replace with real auth
+ export default function UserSwitcher() {
+   const dispatch = useAppDispatch()
+   const userId = useAppSelector((s) => s.session.userId)
+   const { data: users = [] } = useGetUsersQuery()
+ 
+   return (
+     <Select value={String(userId)} onValueChange={(v) => dispatch(switchUser(Number(v)))}>
+       <SelectTrigger className="w-40" aria-label="Switch user">
+-        <SelectValue />
++        <SelectValue placeholder="Select user" />
+       </SelectTrigger>
+       <SelectContent>
+         {users.map((u) => (
+           <SelectItem key={u.id} value={String(u.id)}>
+             {u.name}
+           </SelectItem>
+         ))}
+       </SelectContent>
+     </Select>
+   )

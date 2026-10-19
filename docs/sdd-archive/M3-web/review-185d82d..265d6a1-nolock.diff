@@ -1,0 +1,379 @@
+265d6a1 feat(web): redux store, session slice, rtk query base; feat(api): GET /api/users
+ package-lock.json              | 772 ++++++++++++++++++++++++++++++++++++++++-
+ server/src/http/user-routes.ts |   3 +
+ server/test/api-user.test.ts   |   8 +
+ web/package.json               |  10 +-
+ web/src/App.tsx                |  43 +--
+ web/src/api.test.ts            |  29 ++
+ web/src/api.ts                 |  20 ++
+ web/src/main.tsx               |   6 +-
+ web/src/session.ts             |  38 ++
+ web/src/store.ts               |  16 +
+ web/src/types.ts               |   4 +
+ web/vitest.config.ts           |   4 +
+ 12 files changed, 914 insertions(+), 39 deletions(-)
+diff --git a/server/src/http/user-routes.ts b/server/src/http/user-routes.ts
+index fbe023e..7e2ad84 100644
+--- a/server/src/http/user-routes.ts
++++ b/server/src/http/user-routes.ts
+@@ -30,20 +30,21 @@ const RulePatch = z.strictObject(ruleFields).partial();
+ const ChannelCreate = z.strictObject({ type: z.string(), config: z.unknown().optional(), enabled: z.boolean().default(true) });
+ const ChannelPatch = z.strictObject({ config: z.unknown().optional(), enabled: z.boolean().optional() });
+ 
+ const badRequest = (path: string, message: string) => ({ error: 'invalid request', issues: [{ path: [path], message }] });
+ export const notFound = { error: 'not found' };
+ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+ 
+ export function userRoutes(db: Database, deps: AppDeps) {
+   const { registry } = deps;
+   const q = {
++    users: db.prepare(`SELECT id, name FROM users ORDER BY id`),
+     rules: db.prepare(`SELECT * FROM rules WHERE user_id = ? ORDER BY id`),
+     rule: db.prepare(`SELECT * FROM rules WHERE id = ? AND user_id = ?`),
+     insertRule: db.prepare(`INSERT INTO rules (user_id, name, categories, keywords, threshold, channel_ids, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`),
+     updateRule: db.prepare(`UPDATE rules SET name = ?, categories = ?, keywords = ?, threshold = ?, channel_ids = ?, enabled = ? WHERE id = ?`),
+     setRuleChannels: db.prepare(`UPDATE rules SET channel_ids = ? WHERE id = ?`),
+     deleteRule: db.prepare(`DELETE FROM rules WHERE id = ? AND user_id = ?`),
+     channels: db.prepare(`SELECT * FROM channels WHERE user_id = ? ORDER BY id`),
+     channel: db.prepare(`SELECT * FROM channels WHERE id = ? AND user_id = ?`),
+     insertChannel: db.prepare(`INSERT INTO channels (user_id, type, config, enabled) VALUES (?, ?, ?, ?)`),
+     updateChannel: db.prepare(`UPDATE channels SET config = ?, enabled = ? WHERE id = ?`),
+@@ -63,20 +64,22 @@ export function userRoutes(db: Database, deps: AppDeps) {
+   const masked = (c: ChannelRow) => ({ id: c.id, type: c.type, config: registry[c.type]?.maskConfig(c.config) ?? {}, enabled: c.enabled });
+   /** Validates with the adapter schema (throws ZodError → 400). Email `to` defaults to the user's email. */
+   const parseConfig = (type: string, config: unknown, user: User) => {
+     const raw = type === 'email' && (config === undefined || isObject(config)) ? { to: user.email, ...(config ?? {}) } : config;
+     return registry[type].configSchema.parse(raw);
+   };
+ 
+   return async (app: FastifyInstance) => {
+     app.get('/me', async (req) => req.user);
+ 
++    app.get('/users', async () => q.users.all());
++
+     app.get('/rules', async (req) => q.rules.all(req.user.id).map(rowToRule));
+ 
+     app.get('/rules/:id', async (req, reply) => getRule(IdParams.parse(req.params).id, req.user) ?? reply.code(404).send(notFound));
+ 
+     app.post('/rules', async (req, reply) => {
+       const b = RuleCreate.parse(req.body);
+       const channelIds = [...new Set(b.channelIds)];
+       if (!ownsAll(channelIds, req.user)) return reply.code(400).send(badRequest('channelIds', 'unknown channel'));
+       const id = Number(q.insertRule.run(req.user.id, b.name, JSON.stringify(b.categories), JSON.stringify(b.keywords),
+         b.threshold, JSON.stringify(channelIds), b.enabled ? 1 : 0).lastInsertRowid);
+diff --git a/server/test/api-user.test.ts b/server/test/api-user.test.ts
+index a2b3692..ef3d185 100644
+--- a/server/test/api-user.test.ts
++++ b/server/test/api-user.test.ts
+@@ -49,20 +49,28 @@ describe('identity', () => {
+     expect(res.statusCode).toBe(200);
+     expect(res.json()).toEqual({ id: bence, name: 'Bence', email: 'bence@example.com', homeCountry: 'HU', isAdmin: false });
+   });
+   it('requireAdmin → 403 for non-admins, passes admins', async () => {
+     const reply = { code: (c: number) => ({ send: (b: unknown) => ({ c, b }) }) } as any;
+     expect(await requireAdmin({ user: { isAdmin: false } } as any, reply)).toEqual({ c: 403, b: { error: 'admin only' } });
+     expect(await requireAdmin({ user: { isAdmin: true } } as any, reply)).toBeUndefined();
+   });
+ });
+ 
++describe('users', () => {
++  it('GET /api/users as non-admin returns only id and name, ordered by id', async () => {
++    const res = await req('GET', '/api/users', bence);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual([{ id: anna, name: 'Anna' }, { id: bence, name: 'Bence' }]);
++  });
++});
++
+ describe('rules', () => {
+   it('CRUD round-trip', async () => {
+     const ch = addChannel(db, bence);
+     const created = await req('POST', '/api/rules', bence, { name: 'Floods', categories: ['disaster'], keywords: ['árvíz'], threshold: 0.4, channelIds: [ch, ch] });
+     expect(created.statusCode).toBe(201);
+     const rule = created.json();
+     expect(rule).toEqual({ id: expect.any(Number), userId: bence, name: 'Floods', categories: ['disaster'], keywords: ['árvíz'], threshold: 0.4, channelIds: [ch], enabled: true });
+ 
+     expect((await req('GET', '/api/rules', bence)).json()).toEqual([rule]);
+     expect((await req('GET', `/api/rules/${rule.id}`, bence)).json()).toEqual(rule);
+diff --git a/web/package.json b/web/package.json
+index 2f2bcd1..340480f 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -1,34 +1,40 @@
+ {
+   "name": "web",
+   "private": true,
+   "version": "0.0.0",
+   "type": "module",
+   "scripts": {
+     "dev": "vite",
+     "build": "tsc -b && vite build",
+     "lint": "oxlint",
+-    "preview": "vite preview"
++    "preview": "vite preview",
++    "test": "vitest run"
+   },
+   "dependencies": {
+     "@fontsource-variable/geist": "^5.3.0",
++    "@reduxjs/toolkit": "^2.13.0",
+     "@tailwindcss/vite": "^4.3.3",
+     "class-variance-authority": "^0.7.1",
+     "cn": "^0.5.0",
+     "lucide-react": "^1.59.0",
+     "radix-ui": "^1.8.1",
+     "react": "^19.3.1",
+     "react-dom": "^19.3.1",
++    "react-redux": "^9.3.0",
+     "shadcn": "^4.22.1",
+     "tailwindcss": "^4.3.3",
+     "tw-animate-css": "^1.4.0"
+   },
+   "devDependencies": {
++    "@testing-library/react": "^16.3.3",
+     "@types/node": "^24.19.2",
+     "@types/react": "^19.3.0",
+     "@types/react-dom": "^19.3.0",
+     "@vitejs/plugin-react": "^6.1.2",
++    "jsdom": "^29.1.1",
+     "oxlint": "^1.88.0",
+     "typescript": "~7.0.2",
+-    "vite": "^8.3.4"
++    "vite": "^8.3.4",
++    "vitest": "^5.0.5"
+   }
+ }
+diff --git a/web/src/App.tsx b/web/src/App.tsx
+index 1e71207..a13a87f 100644
+--- a/web/src/App.tsx
++++ b/web/src/App.tsx
+@@ -1,56 +1,29 @@
+-import { useEffect, useState } from 'react'
+ import { Button } from '@/components/ui/button'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+-
+-type Me = { name: string; homeCountry: string; isAdmin: boolean }
+-type Status =
+-  | { kind: 'loading' }
+-  | { kind: 'ok'; me: Me }
+-  | { kind: 'error'; message: string }
++import { useGetMeQuery } from './api'
+ 
+ export default function App() {
+-  const [status, setStatus] = useState<Status>({ kind: 'loading' })
+-  const [attempt, setAttempt] = useState(0)
+-
+-  // shortcut: plain fetch + hard-coded user 1 until RTK Query and the user switcher (Tasks 11b/11c)
+-  useEffect(() => {
+-    let cancelled = false
+-    setStatus({ kind: 'loading' })
+-    fetch('/api/me', { headers: { 'X-User-Id': '1' } })
+-      .then(async (res) => {
+-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+-        return (await res.json()) as Me
+-      })
+-      .then((me) => !cancelled && setStatus({ kind: 'ok', me }))
+-      .catch((e: unknown) => {
+-        if (!cancelled) {
+-          setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+-        }
+-      })
+-    return () => {
+-      cancelled = true
+-    }
+-  }, [attempt])
++  const { data: me, error, refetch } = useGetMeQuery()
+ 
+   let text = 'Connecting…'
+-  if (status.kind === 'ok') {
+-    const { name, homeCountry, isAdmin } = status.me
+-    text = `Connected to API as ${name} (${homeCountry}${isAdmin ? ', admin' : ''})`
+-  } else if (status.kind === 'error') {
+-    text = `API not reachable: ${status.message}`
++  if (me) {
++    text = `Connected to API as ${me.name} (${me.homeCountry}${me.isAdmin ? ', admin' : ''})`
++  } else if (error) {
++    const reason = 'status' in error ? `HTTP ${error.status}` : (error.message ?? 'unknown error')
++    text = `API not reachable: ${reason}`
+   }
+ 
+   return (
+     <main className="flex min-h-screen items-center justify-center p-4">
+       <Card className="w-full max-w-md">
+         <CardHeader>
+           <CardTitle>World Alerts</CardTitle>
+         </CardHeader>
+         <CardContent className="flex flex-col items-start gap-4">
+           <p>{text}</p>
+-          <Button onClick={() => setAttempt((n) => n + 1)}>Retry</Button>
++          <Button onClick={() => refetch()}>Retry</Button>
+         </CardContent>
+       </Card>
+     </main>
+   )
+ }
+diff --git a/web/src/api.test.ts b/web/src/api.test.ts
+new file mode 100644
+index 0000000..34c968d
+--- /dev/null
++++ b/web/src/api.test.ts
+@@ -0,0 +1,29 @@
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { api } from './api'
++import { switchUser } from './session'
++import { makeStore } from './store'
++
++const me = { id: 1, name: 'A', email: 'a@x', homeCountry: 'HU', isAdmin: false }
++
++function mockFetch() {
++  const fn = vi.fn(async (_req: Request) => new Response(JSON.stringify(me), { headers: { 'content-type': 'application/json' } }))
++  vi.stubGlobal('fetch', fn)
++  return fn
++}
++afterEach(() => vi.unstubAllGlobals())
++
++describe('api session header', () => {
++  it('sends X-User-Id 1, then 2 after switchUser, and drops the cached state', async () => {
++    const fetchMock = mockFetch()
++    const store = makeStore()
++    await store.dispatch(api.endpoints.getMe.initiate())
++    expect(fetchMock.mock.calls[0][0].headers.get('X-User-Id')).toBe('1')
++    expect(api.endpoints.getMe.select()(store.getState()).data).toEqual(me)
++
++    store.dispatch(switchUser(2) as never)
++    expect(api.endpoints.getMe.select()(store.getState()).data).toBeUndefined()
++
++    await store.dispatch(api.endpoints.getMe.initiate())
++    expect(fetchMock.mock.calls[1][0].headers.get('X-User-Id')).toBe('2')
++  })
++})
+diff --git a/web/src/api.ts b/web/src/api.ts
+new file mode 100644
+index 0000000..292999b
+--- /dev/null
++++ b/web/src/api.ts
+@@ -0,0 +1,20 @@
++import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
++import type { Me, UserSummary } from './types'
++
++export const api = createApi({
++  reducerPath: 'api',
++  baseQuery: fetchBaseQuery({
++    baseUrl: `${location.origin}/api`, // absolute: fetchBaseQuery builds a Request, which rejects relative URLs outside browsers
++    prepareHeaders: (headers, { getState }) => {
++      headers.set('X-User-Id', String((getState() as { session: { userId: number } }).session.userId))
++      return headers
++    },
++  }),
++  tagTypes: ['Me', 'Users', 'Rules', 'Channels', 'MyDeliveries', 'AdminUsers', 'AdminRules', 'Events', 'Deliveries', 'Sources'],
++  endpoints: (build) => ({
++    getMe: build.query<Me, void>({ query: () => '/me', providesTags: ['Me'] }),
++    getUsers: build.query<UserSummary[], void>({ query: () => '/users', providesTags: ['Users'] }),
++  }),
++})
++
++export const { useGetMeQuery, useGetUsersQuery } = api
+diff --git a/web/src/main.tsx b/web/src/main.tsx
+index bef5202..71ed8e9 100644
+--- a/web/src/main.tsx
++++ b/web/src/main.tsx
+@@ -1,10 +1,14 @@
+ import { StrictMode } from 'react'
+ import { createRoot } from 'react-dom/client'
++import { Provider } from 'react-redux'
+ import './index.css'
+ import App from './App.tsx'
++import { store } from './store'
+ 
+ createRoot(document.getElementById('root')!).render(
+   <StrictMode>
+-    <App />
++    <Provider store={store}>
++      <App />
++    </Provider>
+   </StrictMode>,
+ )
+diff --git a/web/src/session.ts b/web/src/session.ts
+new file mode 100644
+index 0000000..0d8fb94
+--- /dev/null
++++ b/web/src/session.ts
+@@ -0,0 +1,38 @@
++import { createSlice, type PayloadAction, type ThunkAction, type UnknownAction } from '@reduxjs/toolkit'
++import { api } from './api'
++
++const KEY = 'wa.userId'
++
++function load(): number {
++  try {
++    const n = Number(localStorage.getItem(KEY))
++    return Number.isInteger(n) && n > 0 ? n : 1
++  } catch {
++    return 1
++  }
++}
++
++const sessionSlice = createSlice({
++  name: 'session',
++  initialState: { userId: load() },
++  reducers: {
++    setUser(state, action: PayloadAction<number>) {
++      state.userId = action.payload
++      try {
++        localStorage.setItem(KEY, String(action.payload))
++      } catch {
++        // storage unavailable: the selection just won't persist
++      }
++    },
++  },
++})
++
++export const { setUser } = sessionSlice.actions
++export default sessionSlice.reducer
++
++export const switchUser =
++  (id: number): ThunkAction<void, unknown, unknown, UnknownAction> =>
++  (dispatch) => {
++    dispatch(setUser(id))
++    dispatch(api.util.resetApiState())
++  }
+diff --git a/web/src/store.ts b/web/src/store.ts
+new file mode 100644
+index 0000000..ba19782
+--- /dev/null
++++ b/web/src/store.ts
+@@ -0,0 +1,16 @@
++import { configureStore } from '@reduxjs/toolkit'
++import { useDispatch, useSelector } from 'react-redux'
++import { api } from './api'
++import session from './session'
++
++export const makeStore = () =>
++  configureStore({
++    reducer: { session, [api.reducerPath]: api.reducer },
++    middleware: (getDefault) => getDefault().concat(api.middleware),
++  })
++
++export const store = makeStore()
++export type RootState = ReturnType<typeof store.getState>
++export type AppDispatch = typeof store.dispatch
++export const useAppDispatch = useDispatch.withTypes<AppDispatch>()
++export const useAppSelector = useSelector.withTypes<RootState>()
+diff --git a/web/src/types.ts b/web/src/types.ts
+new file mode 100644
+index 0000000..6f39d91
+--- /dev/null
++++ b/web/src/types.ts
+@@ -0,0 +1,4 @@
++// shortcut: hand-copied API types, share them from the server if they drift
++export type Me = { id: number; name: string; email: string; homeCountry: string; isAdmin: boolean }
++export type UserSummary = { id: number; name: string }
++export type ApiError = { error: string; issues?: unknown[] }
+diff --git a/web/vitest.config.ts b/web/vitest.config.ts
+new file mode 100644
+index 0000000..59eb25e
+--- /dev/null
++++ b/web/vitest.config.ts
+@@ -0,0 +1,4 @@
++import { mergeConfig } from 'vitest/config'
++import viteConfig from './vite.config'
++
++export default mergeConfig(viteConfig, { test: { environment: 'jsdom' } })
