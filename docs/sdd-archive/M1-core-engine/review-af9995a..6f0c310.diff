@@ -1,0 +1,164 @@
+# Review package: af9995a..HEAD
+
+## Commits
+6f0c310 fix(server): keep poll baseline until first successful poll
+
+## Files changed
+ server/src/db/schema.sql    |  1 +
+ server/src/pipeline/poll.ts |  7 ++++---
+ server/test/poll.test.ts    | 28 ++++++++++++++++++++++------
+ 3 files changed, 27 insertions(+), 9 deletions(-)
+
+## Diff
+diff --git a/server/src/db/schema.sql b/server/src/db/schema.sql
+index effc490..2fd6807 100644
+--- a/server/src/db/schema.sql
++++ b/server/src/db/schema.sql
+@@ -58,12 +58,13 @@ CREATE TABLE IF NOT EXISTS deliveries (
+ );
+ 
+ CREATE TABLE IF NOT EXISTS sources (
+   id INTEGER PRIMARY KEY,
+   type TEXT NOT NULL,
+   name TEXT NOT NULL,
+   config TEXT NOT NULL DEFAULT '{}',
+   enabled INTEGER NOT NULL DEFAULT 1,
+   poll_interval_s INTEGER NOT NULL,
+   last_polled_at TEXT,
++  baseline_at TEXT,
+   last_error TEXT
+ );
+diff --git a/server/src/pipeline/poll.ts b/server/src/pipeline/poll.ts
+index 3b7dc0f..7494af2 100644
+--- a/server/src/pipeline/poll.ts
++++ b/server/src/pipeline/poll.ts
+@@ -16,21 +16,22 @@ export async function pollSource(db: Database, sourceId: number, deps: { fetchIm
+   if (!row) return { ok: false, inserted: 0, error: 'source not found' };
+ 
+   let inserted = 0;
+   let error: string | null = null;
+   try {
+     inserted = await fetchAndIngest(db, row, deps);
+   } catch (err) {
+     error = message(err);
+   }
+   try {
+-    db.prepare(`UPDATE sources SET last_polled_at = ?, last_error = ? WHERE id = ?`).run(deps.now().toISOString(), error, sourceId);
++    db.prepare(`UPDATE sources SET last_polled_at = ?, last_error = ?, baseline_at = COALESCE(baseline_at, ?) WHERE id = ?`)
++      .run(deps.now().toISOString(), error, error === null ? deps.now().toISOString() : null, sourceId);
+   } catch (err) {
+     error ??= message(err);
+   }
+   return error === null ? { ok: true, inserted } : { ok: false, inserted: 0, error };
+ }
+ 
+ async function fetchAndIngest(db: Database, row: any, deps: { fetchImpl: typeof fetch; now: () => Date }): Promise<number> {
+   const adapter = Object.hasOwn(sourceAdapters, row.type) ? sourceAdapters[row.type as keyof typeof sourceAdapters] : undefined;
+   if (!adapter) throw new Error(`unknown source type ${row.type}`);
+   let parsed;
+@@ -38,15 +39,15 @@ async function fetchAndIngest(db: Database, row: any, deps: { fetchImpl: typeof
+   if (!parsed?.success) throw new Error('invalid config');
+   const config = parsed.data;
+ 
+   const res = await deps.fetchImpl(adapter.url(config), {
+     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+     headers: { 'User-Agent': 'world-alerts/0.1' },
+   });
+   if (!res.ok) throw new Error(`HTTP ${res.status}`); // body deliberately not read into the error
+   const body = await res.text();
+   // normalize throws before ingest on a bad body, and ingest is one transaction: no partial events.
+-  // First poll of a source is a baseline: store what the feed already has, alert only on later items.
+-  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now(), { createDeliveries: row.last_polled_at !== null }).inserted.length;
++  // First *successful* poll of a source is a baseline (baseline_at; a failed attempt doesn't count): store what the feed already has, alert only on later items.
++  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now(), { createDeliveries: row.baseline_at !== null }).inserted.length;
+ }
+ 
+ const message = (err: unknown): string => String((err as Error)?.message ?? err).slice(0, MAX_ERROR_LEN);
+diff --git a/server/test/poll.test.ts b/server/test/poll.test.ts
+index 83a5995..906898a 100644
+--- a/server/test/poll.test.ts
++++ b/server/test/poll.test.ts
+@@ -6,23 +6,23 @@ import { runTick, startScheduler } from '../src/pipeline/scheduler';
+ import { ingest } from '../src/pipeline/ingest';
+ import type { ChannelAdapter } from '../src/channels';
+ import { addChannel, addRule, addUser, makeDb } from './helpers';
+ 
+ const gdacsXml = readFileSync(new URL('./fixtures/gdacs.xml', import.meta.url), 'utf8');
+ const telexXml = readFileSync(new URL('./fixtures/telex.xml', import.meta.url), 'utf8');
+ const t0 = new Date('2026-10-19T12:00:00Z');
+ const now = () => t0;
+ type Db = ReturnType<typeof makeDb>;
+ 
+-function addSource(db: Db, o: { type?: string; name?: string; config?: unknown; enabled?: boolean; interval?: number; lastPolledAt?: string | null } = {}): number {
+-  return Number(db.prepare(`INSERT INTO sources (type, name, config, enabled, poll_interval_s, last_polled_at) VALUES (?, ?, ?, ?, ?, ?)`)
+-    .run(o.type ?? 'gdacs', o.name ?? 'GDACS', JSON.stringify(o.config ?? {}), o.enabled === false ? 0 : 1, o.interval ?? 300, o.lastPolledAt ?? null).lastInsertRowid);
++function addSource(db: Db, o: { type?: string; name?: string; config?: unknown; enabled?: boolean; interval?: number; lastPolledAt?: string | null; baselineAt?: string | null } = {}): number {
++  return Number(db.prepare(`INSERT INTO sources (type, name, config, enabled, poll_interval_s, last_polled_at, baseline_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
++    .run(o.type ?? 'gdacs', o.name ?? 'GDACS', JSON.stringify(o.config ?? {}), o.enabled === false ? 0 : 1, o.interval ?? 300, o.lastPolledAt ?? null, o.baselineAt ?? null).lastInsertRowid);
+ }
+ const source = (db: Db, id: number) => db.prepare(`SELECT * FROM sources WHERE id = ?`).get(id) as any;
+ const eventCount = (db: Db) => (db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as any).n as number;
+ 
+ /** Stub fetch: answers per URL (default: every URL gets the same reply). */
+ function stubFetch(reply: (url: string) => Response | Promise<Response>) {
+   const calls: { url: string; init?: RequestInit }[] = [];
+   const fetchImpl = (async (url: any, init?: RequestInit) => { calls.push({ url: String(url), init }); return reply(String(url)); }) as typeof fetch;
+   return { fetchImpl, calls };
+ }
+@@ -122,37 +122,53 @@ function fakeRegistry() {
+     type: 'email', configSchema: z.object({ to: z.string() }).loose(), maskConfig: (c) => c,
+     send: async (_c, m) => { sent.push(m.title); },
+   };
+   return { sent, registry: { email: adapter } as Record<string, ChannelAdapter<any>> };
+ }
+ 
+ describe('pollSource backfill baseline', () => {
+   const hu = (db: Db) => { const u = addUser(db); addRule(db, u, { channelIds: [addChannel(db, u)] }); };
+   const deliveryCount = (db: Db) => (db.prepare(`SELECT COUNT(*) AS n FROM deliveries`).get() as any).n as number;
+ 
+-  it('first poll (last_polled_at NULL) stores events but creates no deliveries', async () => {
++  it('first poll (baseline_at NULL) stores events but creates no deliveries', async () => {
+     const db = makeDb();
+     hu(db);
+     const id = addSource(db, { type: 'rss', config: rssConfig });
+     const f = stubFetch(() => new Response(telexXml));
+     expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
+     expect(deliveryCount(db)).toBe(0);
+   });
+ 
+-  it('a later poll (last_polled_at set) creates deliveries for new events', async () => {
++  it('a later poll (baseline_at set) creates deliveries for new events', async () => {
+     const db = makeDb();
+     hu(db);
+-    const id = addSource(db, { type: 'rss', config: rssConfig, lastPolledAt: new Date(t0.getTime() - 300_000).toISOString() });
++    const id = addSource(db, { type: 'rss', config: rssConfig, lastPolledAt: new Date(t0.getTime() - 300_000).toISOString(), baselineAt: new Date(t0.getTime() - 300_000).toISOString() });
+     const f = stubFetch(() => new Response(telexXml));
+     expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
+     expect(deliveryCount(db)).toBe(50); // HU news, base severity 0.5 × home 1.0 = threshold
+   });
++
++  it('a failed first poll keeps the baseline: the next successful poll creates no deliveries, then new items do', async () => {
++    const db = makeDb();
++    hu(db);
++    const id = addSource(db, { type: 'rss', config: rssConfig });
++    expect(await pollSource(db, id, { fetchImpl: stubFetch(() => new Response('down', { status: 500 })).fetchImpl, now })).toMatchObject({ ok: false });
++    expect(source(db, id)).toMatchObject({ last_polled_at: t0.toISOString(), baseline_at: null });
++
++    expect(await pollSource(db, id, { fetchImpl: stubFetch(() => new Response(telexXml)).fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
++    expect(deliveryCount(db)).toBe(0);
++    expect(source(db, id).baseline_at).toBe(t0.toISOString());
++
++    const extra = telexXml.replace('<item>', '<item><title>Brand new</title><link>https://example.com/new</link><guid>brand-new</guid><pubDate>Mon, 19 Oct 2026 11:59:00 GMT</pubDate></item><item>');
++    expect(await pollSource(db, id, { fetchImpl: stubFetch(() => new Response(extra)).fetchImpl, now })).toEqual({ ok: true, inserted: 1 });
++    expect(deliveryCount(db)).toBe(1);
++  });
+ });
+ 
+ describe('runTick', () => {
+   afterEach(() => { vi.useRealTimers(); });
+ 
+   it('a failing source does not stop the next one; failure is logged', async () => {
+     const db = makeDb();
+     const broken = addSource(db, { type: 'rss', name: 'Broken', config: rssConfig });
+     const good = addSource(db);
+     const f = stubFetch((url) => (url === RSS_URL ? new Response('down', { status: 500 }) : new Response(gdacsXml)));

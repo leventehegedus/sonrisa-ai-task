@@ -77,3 +77,4 @@ Ruling: M1, M2, M7 included in the fix wave (shortcut comment + accurate comment
 Final M1 fix wave: 7/7 addressed (commits 8304a4e..5108e3a); re-review: Ready to merge = Yes
 Ruling: B1 (failed first poll writes last_polled_at → baseline lost → next success floods up to 24h of items) — no second fix wave per process; fixed on its own branch `fix/poll-baseline` immediately after the M1 merge, with its own task review — cost if wrong: none (main never runs the server before M2)
 Final M1: deferred to backlog: NaN occurredAt passes 24h guard (isoDate prevents today); bands ignore direction; minChangePct<3 labels band 3; M3–M6, M8–M10 from final review
+Fix B1: complete (commits af9995a..6f0c310, review clean) — minor (deferred): garbage-body test should assert baseline_at null; deps.now() called twice in poll.ts:26-27; schema has no migrations (shortcut note missing)
