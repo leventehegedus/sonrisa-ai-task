@@ -33,7 +33,6 @@ The e2e run is isolated: API on :3002 with a throwaway DB under `/tmp/world-aler
 ## Not verified
 
 - **Real Slack delivery.** No webhook was available. Slack was verified only in dry-run mode and in unit tests with mocked `fetch`. The sequence to try is in [how-to-test.md](how-to-test.md) section 4.
-- Real SMTP delivery (only the `data/outbox` file mode was exercised).
 - Delivery status `sent` in the browser: the e2e screenshots were taken right after injection, so deliveries show `pending` (the dispatcher runs about every 10 s). `sent` was verified by `dispatch.test.ts`, `chain.test.ts` and the curl run in [m2-api-smoke.md](evidence/m2-api-smoke.md).
 - Retry button click in a browser, and the failed-delivery path with a real failing channel.
 - Live feed content in the e2e run (deliberately not asserted); feed formats may change.
@@ -52,3 +51,12 @@ The e2e run is isolated: API on :3002 with a throwaway DB under `/tmp/world-aler
 - The test waits for the new user's data and retries the assertions.
 
 Then: 10/10 and 8/8 consecutive green runs, plus a new error-state test. See R-023 in [`ai-review-log.md`](ai-review-log.md).
+
+
+## Real email delivery (verified 2026-10-20)
+
+1. **Throwaway SMTP server.** The Ethereal check returned `{"ok":true}` and `250 Accepted` ([`evidence/smtp-ethereal-check.md`](evidence/smtp-ethereal-check.md)).
+2. **Real Gmail, end to end.** The user created a Gmail App password, which was stored only in the git-ignored `.env`.
+   - Setup: an isolated API instance (`PORT=3004`, temp DB) loaded `.env`. As user 1, an email channel was created with the user's own address, then `POST /api/channels/4/test` returned `{"ok":true}`.
+   - The agent then searched the user's mailbox **read-only** through the Gmail connector. The message `[World Alerts] World Alerts test message` was in the **INBOX**, received 2026-10-19T23:18:22Z, with the body "This is a test alert sent from your channel settings. importance 1.00 = critical override (severity 1.00 ≥ 0.9) ≥ threshold 0.5".
+   - As documented, Gmail set the From to the authenticated account.
