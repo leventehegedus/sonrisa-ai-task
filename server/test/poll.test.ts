@@ -13,9 +13,9 @@ const t0 = new Date('2026-10-19T12:00:00Z');
 const now = () => t0;
 type Db = ReturnType<typeof makeDb>;
 
-function addSource(db: Db, o: { type?: string; name?: string; config?: unknown; enabled?: boolean; interval?: number; lastPolledAt?: string | null } = {}): number {
-  return Number(db.prepare(`INSERT INTO sources (type, name, config, enabled, poll_interval_s, last_polled_at) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(o.type ?? 'gdacs', o.name ?? 'GDACS', JSON.stringify(o.config ?? {}), o.enabled === false ? 0 : 1, o.interval ?? 300, o.lastPolledAt ?? null).lastInsertRowid);
+function addSource(db: Db, o: { type?: string; name?: string; config?: unknown; enabled?: boolean; interval?: number; lastPolledAt?: string | null; baselineAt?: string | null } = {}): number {
+  return Number(db.prepare(`INSERT INTO sources (type, name, config, enabled, poll_interval_s, last_polled_at, baseline_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(o.type ?? 'gdacs', o.name ?? 'GDACS', JSON.stringify(o.config ?? {}), o.enabled === false ? 0 : 1, o.interval ?? 300, o.lastPolledAt ?? null, o.baselineAt ?? null).lastInsertRowid);
 }
 const source = (db: Db, id: number) => db.prepare(`SELECT * FROM sources WHERE id = ?`).get(id) as any;
 const eventCount = (db: Db) => (db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as any).n as number;
@@ -129,7 +129,7 @@ describe('pollSource backfill baseline', () => {
   const hu = (db: Db) => { const u = addUser(db); addRule(db, u, { channelIds: [addChannel(db, u)] }); };
   const deliveryCount = (db: Db) => (db.prepare(`SELECT COUNT(*) AS n FROM deliveries`).get() as any).n as number;
 
-  it('first poll (last_polled_at NULL) stores events but creates no deliveries', async () => {
+  it('first poll (baseline_at NULL) stores events but creates no deliveries', async () => {
     const db = makeDb();
     hu(db);
     const id = addSource(db, { type: 'rss', config: rssConfig });
@@ -138,13 +138,29 @@ describe('pollSource backfill baseline', () => {
     expect(deliveryCount(db)).toBe(0);
   });
 
-  it('a later poll (last_polled_at set) creates deliveries for new events', async () => {
+  it('a later poll (baseline_at set) creates deliveries for new events', async () => {
     const db = makeDb();
     hu(db);
-    const id = addSource(db, { type: 'rss', config: rssConfig, lastPolledAt: new Date(t0.getTime() - 300_000).toISOString() });
+    const id = addSource(db, { type: 'rss', config: rssConfig, lastPolledAt: new Date(t0.getTime() - 300_000).toISOString(), baselineAt: new Date(t0.getTime() - 300_000).toISOString() });
     const f = stubFetch(() => new Response(telexXml));
     expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
     expect(deliveryCount(db)).toBe(50); // HU news, base severity 0.5 × home 1.0 = threshold
+  });
+
+  it('a failed first poll keeps the baseline: the next successful poll creates no deliveries, then new items do', async () => {
+    const db = makeDb();
+    hu(db);
+    const id = addSource(db, { type: 'rss', config: rssConfig });
+    expect(await pollSource(db, id, { fetchImpl: stubFetch(() => new Response('down', { status: 500 })).fetchImpl, now })).toMatchObject({ ok: false });
+    expect(source(db, id)).toMatchObject({ last_polled_at: t0.toISOString(), baseline_at: null });
+
+    expect(await pollSource(db, id, { fetchImpl: stubFetch(() => new Response(telexXml)).fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
+    expect(deliveryCount(db)).toBe(0);
+    expect(source(db, id).baseline_at).toBe(t0.toISOString());
+
+    const extra = telexXml.replace('<item>', '<item><title>Brand new</title><link>https://example.com/new</link><guid>brand-new</guid><pubDate>Mon, 19 Oct 2026 11:59:00 GMT</pubDate></item><item>');
+    expect(await pollSource(db, id, { fetchImpl: stubFetch(() => new Response(extra)).fetchImpl, now })).toEqual({ ok: true, inserted: 1 });
+    expect(deliveryCount(db)).toBe(1);
   });
 });
 

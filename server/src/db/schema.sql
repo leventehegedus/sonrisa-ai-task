@@ -65,5 +65,6 @@ CREATE TABLE IF NOT EXISTS sources (
   enabled INTEGER NOT NULL DEFAULT 1,
   poll_interval_s INTEGER NOT NULL,
   last_polled_at TEXT,
+  baseline_at TEXT,
   last_error TEXT
 );
