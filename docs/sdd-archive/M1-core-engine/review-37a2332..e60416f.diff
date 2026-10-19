@@ -1,0 +1,213 @@
+# Review package: 37a2332..HEAD
+
+## Commits
+e60416f feat(server): ingest pipeline with dedup and scored deliveries
+
+## Files changed
+ server/src/db/rows.ts         | 21 +++++++++++
+ server/src/pipeline/ingest.ts | 42 +++++++++++++++++++++
+ server/test/helpers.ts        | 26 +++++++++++++
+ server/test/ingest.test.ts    | 87 +++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 176 insertions(+)
+
+## Diff
+diff --git a/server/src/db/rows.ts b/server/src/db/rows.ts
+new file mode 100644
+index 0000000..d451f20
+--- /dev/null
++++ b/server/src/db/rows.ts
+@@ -0,0 +1,21 @@
++import type { Category, EventRow, Rule, Scope, User } from '../types';
++
++// Raw SQL rows (snake_case, JSON as TEXT, booleans as 0/1) -> domain types.
++export const rowToUser = (r: any): User => ({
++  id: r.id, name: r.name, email: r.email, homeCountry: r.home_country, isAdmin: !!r.is_admin,
++});
++
++export const rowToRule = (r: any): Rule => ({
++  id: r.id, userId: r.user_id, name: r.name,
++  categories: JSON.parse(r.categories) as Category[],
++  keywords: JSON.parse(r.keywords) as string[],
++  threshold: r.threshold,
++  channelIds: JSON.parse(r.channel_ids) as number[],
++  enabled: !!r.enabled,
++});
++
++export const rowToEvent = (r: any): EventRow => ({
++  id: r.id, source: r.source, externalId: r.external_id, category: r.category as Category,
++  title: r.title, summary: r.summary, url: r.url, country: r.country, scope: r.scope as Scope,
++  severity: r.severity, occurredAt: r.occurred_at, raw: JSON.parse(r.raw),
++});
+diff --git a/server/src/pipeline/ingest.ts b/server/src/pipeline/ingest.ts
+new file mode 100644
+index 0000000..bf5055d
+--- /dev/null
++++ b/server/src/pipeline/ingest.ts
+@@ -0,0 +1,42 @@
++import type { Database } from 'better-sqlite3';
++import { evaluate } from '../matching';
++import { rowToEvent, rowToRule, rowToUser } from '../db/rows';
++import type { EventRow, NewEvent } from '../types';
++
++export function ingest(db: Database, events: NewEvent[], now: Date): { inserted: EventRow[]; deliveriesCreated: number } {
++  const insertEvent = db.prepare(
++    `INSERT OR IGNORE INTO events (source, external_id, category, title, summary, url, country, scope, severity, occurred_at, raw)
++     VALUES (@source, @externalId, @category, @title, @summary, @url, @country, @scope, @severity, @occurredAt, @raw)
++     RETURNING *`,
++  );
++  const insertDelivery = db.prepare(
++    `INSERT OR IGNORE INTO deliveries (rule_id, event_id, channel_id, status, attempts, score, score_breakdown, created_at, next_attempt_at)
++     VALUES (?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
++  );
++  // Only enabled channels owned by the rule's user may receive deliveries.
++  const channelOk = db.prepare(`SELECT 1 FROM channels WHERE id = ? AND user_id = ? AND enabled = 1`);
++
++  return db.transaction(() => {
++    const users = new Map(db.prepare(`SELECT * FROM users`).all().map((r) => [(r as any).id as number, rowToUser(r)]));
++    const rules = db.prepare(`SELECT * FROM rules WHERE enabled = 1`).all().map(rowToRule);
++    const ts = now.toISOString();
++    const inserted: EventRow[] = [];
++    let deliveriesCreated = 0;
++    for (const e of events) {
++      const row = insertEvent.get({ ...e, raw: JSON.stringify(e.raw ?? null) });
++      if (!row) continue;
++      const event = rowToEvent(row);
++      inserted.push(event);
++      for (const rule of rules) {
++        const user = users.get(rule.userId);
++        const b = user && evaluate(rule, user, event);
++        if (!b || !b.fires) continue;
++        for (const channelId of rule.channelIds) {
++          if (!channelOk.get(channelId, rule.userId)) continue;
++          deliveriesCreated += insertDelivery.run(rule.id, event.id, channelId, b.importance, JSON.stringify(b), ts, ts).changes;
++        }
++      }
++    }
++    return { inserted, deliveriesCreated };
++  })();
++}
+diff --git a/server/test/helpers.ts b/server/test/helpers.ts
+new file mode 100644
+index 0000000..3daa7e7
+--- /dev/null
++++ b/server/test/helpers.ts
+@@ -0,0 +1,26 @@
++import { openDb } from '../src/db';
++import type { Category } from '../src/types';
++
++type Db = ReturnType<typeof openDb>;
++
++export const makeDb = (): Db => openDb(':memory:');
++
++// Factories insert one row and return its id.
++export function addUser(db: Db, o: { name?: string; email?: string; homeCountry?: string; isAdmin?: boolean } = {}): number {
++  return Number(db.prepare(`INSERT INTO users (name, email, home_country, is_admin) VALUES (?, ?, ?, ?)`)
++    .run(o.name ?? 'User', o.email ?? 'u@example.com', o.homeCountry ?? 'HU', o.isAdmin ? 1 : 0).lastInsertRowid);
++}
++
++export function addChannel(db: Db, userId: number, o: { type?: 'email' | 'slack'; config?: unknown; enabled?: boolean } = {}): number {
++  return Number(db.prepare(`INSERT INTO channels (user_id, type, config, enabled) VALUES (?, ?, ?, ?)`)
++    .run(userId, o.type ?? 'email', JSON.stringify(o.config ?? { to: 'u@example.com' }), o.enabled === false ? 0 : 1).lastInsertRowid);
++}
++
++export function addRule(
++  db: Db, userId: number,
++  o: { name?: string; categories?: Category[]; keywords?: string[]; threshold?: number; channelIds?: number[]; enabled?: boolean } = {},
++): number {
++  return Number(db.prepare(`INSERT INTO rules (user_id, name, categories, keywords, threshold, channel_ids, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`)
++    .run(userId, o.name ?? 'rule', JSON.stringify(o.categories ?? []), JSON.stringify(o.keywords ?? []),
++      o.threshold ?? 0.5, JSON.stringify(o.channelIds ?? []), o.enabled === false ? 0 : 1).lastInsertRowid);
++}
+diff --git a/server/test/ingest.test.ts b/server/test/ingest.test.ts
+new file mode 100644
+index 0000000..288185f
+--- /dev/null
++++ b/server/test/ingest.test.ts
+@@ -0,0 +1,87 @@
++import { describe, it, expect } from 'vitest';
++import { ingest } from '../src/pipeline/ingest';
++import { addChannel, addRule, addUser, makeDb } from './helpers';
++import type { NewEvent } from '../src/types';
++
++const now = new Date('2026-10-19T12:00:00Z');
++const ev = (o: Partial<NewEvent> = {}): NewEvent => ({
++  source: 's', externalId: 'e1', category: 'news', title: 'Hello', summary: null, url: null,
++  scope: 'country', country: 'HU', severity: 0.5, occurredAt: '2026-10-19T00:00:00Z', raw: {}, ...o,
++});
++const deliveries = (db: ReturnType<typeof makeDb>) => db.prepare(`SELECT * FROM deliveries`).all() as any[];
++
++function setup() {
++  const db = makeDb();
++  const user = addUser(db, { homeCountry: 'HU' });
++  const channel = addChannel(db, user);
++  const rule = addRule(db, user, { channelIds: [channel] });
++  return { db, user, channel, rule };
++}
++
++describe('ingest', () => {
++  it('creates a pending scored delivery for a HU event and HU user', () => {
++    const { db, channel, rule } = setup();
++    const r = ingest(db, [ev()], now);
++    expect(r.inserted).toHaveLength(1);
++    expect(r.deliveriesCreated).toBe(1);
++    const [d] = deliveries(db);
++    expect(d).toMatchObject({ status: 'pending', attempts: 0, rule_id: rule, channel_id: channel, event_id: r.inserted[0].id,
++      score: 0.5, created_at: now.toISOString(), next_attempt_at: now.toISOString() });
++    expect(JSON.parse(d.score_breakdown).proximityReason).toBe('home');
++  });
++
++  it('re-ingesting the same event inserts nothing and keeps one delivery', () => {
++    const { db } = setup();
++    ingest(db, [ev()], now);
++    const r = ingest(db, [ev()], now);
++    expect(r.inserted).toEqual([]);
++    expect(r.deliveriesCreated).toBe(0);
++    expect(deliveries(db)).toHaveLength(1);
++  });
++
++  it('two rules matching on the same channel give one delivery', () => {
++    const { db, user, channel } = setup();
++    addRule(db, user, { name: 'second', channelIds: [channel] });
++    const r = ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(1);
++    expect(r.deliveriesCreated).toBe(1);
++  });
++
++  it('a NP event for a HU user gives no delivery', () => {
++    const { db } = setup();
++    const r = ingest(db, [ev({ country: 'NP' })], now);
++    expect(r.inserted).toHaveLength(1);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('a disabled channel gets no delivery', () => {
++    const { db, user } = setup();
++    const off = addChannel(db, user, { enabled: false });
++    db.prepare(`UPDATE rules SET channel_ids = ?`).run(JSON.stringify([off]));
++    ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('a rule never delivers to another user\'s channel', () => {
++    const { db, user } = setup();
++    const other = addUser(db, { email: 'o@example.com' });
++    const foreign = addChannel(db, other);
++    db.prepare(`UPDATE rules SET channel_ids = ? WHERE user_id = ?`).run(JSON.stringify([foreign]), user);
++    ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('a nonexistent channel id gets no delivery and no NULL channel_id row', () => {
++    const { db, user } = setup();
++    db.prepare(`UPDATE rules SET channel_ids = '[9999]' WHERE user_id = ?`).run(user);
++    ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('a disabled rule gets no delivery', () => {
++    const { db } = setup();
++    db.prepare(`UPDATE rules SET enabled = 0`).run();
++    ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++});

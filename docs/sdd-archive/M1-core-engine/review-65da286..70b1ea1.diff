@@ -1,0 +1,96 @@
+# Review package: 65da286..HEAD
+
+## Commits
+70b1ea1 feat(server): rule content matching and evaluation
+
+## Files changed
+ server/src/matching/index.ts | 20 +++++++++++++++++
+ server/test/matching.test.ts | 53 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 73 insertions(+)
+
+## Diff
+diff --git a/server/src/matching/index.ts b/server/src/matching/index.ts
+new file mode 100644
+index 0000000..ba89df7
+--- /dev/null
++++ b/server/src/matching/index.ts
+@@ -0,0 +1,20 @@
++import { score } from '../scoring';
++import type { EventRow, NewEvent, Rule, ScoreBreakdown, User } from '../types';
++
++const lower = (s: string) => s.toLocaleLowerCase('hu');
++
++export function matchesContent(
++  rule: Pick<Rule, 'categories' | 'keywords'>,
++  event: Pick<NewEvent, 'category' | 'title' | 'summary'>,
++): boolean {
++  if (rule.categories.length && !rule.categories.includes(event.category)) return false;
++  const keywords = rule.keywords.map((k) => lower(k.trim())).filter(Boolean);
++  if (!keywords.length) return true;
++  const text = lower(`${event.title} ${event.summary ?? ''}`);
++  return keywords.some((k) => text.includes(k));
++}
++
++export function evaluate(rule: Rule, user: User, event: EventRow): ScoreBreakdown | null {
++  if (!rule.enabled || !matchesContent(rule, event)) return null;
++  return score(event, user.homeCountry, rule.threshold);
++}
+diff --git a/server/test/matching.test.ts b/server/test/matching.test.ts
+new file mode 100644
+index 0000000..b37ad88
+--- /dev/null
++++ b/server/test/matching.test.ts
+@@ -0,0 +1,53 @@
++import { describe, it, expect } from 'vitest';
++import { matchesContent, evaluate } from '../src/matching';
++import type { EventRow, Rule, User } from '../src/types';
++
++const ev = (o: Partial<EventRow> = {}): EventRow => ({
++  id: 1, source: 's', externalId: 'x', category: 'news', title: 'Title', summary: null, url: null,
++  scope: 'global', country: null, severity: 0.5, occurredAt: '2026-10-19T00:00:00Z', raw: null, ...o,
++});
++const rule = (o: Partial<Rule> = {}): Rule => ({
++  id: 1, userId: 1, name: 'r', categories: [], keywords: [], threshold: 0.5, channelIds: [], enabled: true, ...o,
++});
++const hu: User = { id: 1, name: 'A', email: 'a@b.c', homeCountry: 'HU', isAdmin: false };
++
++describe('matchesContent', () => {
++  it('empty categories and keywords match anything', () => {
++    expect(matchesContent(rule(), ev())).toBe(true);
++  });
++  it('category mismatch is false', () => {
++    expect(matchesContent(rule({ categories: ['market'] }), ev())).toBe(false);
++    expect(matchesContent(rule({ categories: ['market', 'news'] }), ev())).toBe(true);
++  });
++  it('keywords are OR, case-insensitive, over title and summary', () => {
++    const e = ev({ title: 'Storm warning', summary: 'Heavy RAIN expected' });
++    expect(matchesContent(rule({ keywords: ['nope', 'rain'] }), e)).toBe(true);
++    expect(matchesContent(rule({ keywords: ['STORM'] }), e)).toBe(true);
++    expect(matchesContent(rule({ keywords: ['nope'] }), e)).toBe(false);
++  });
++  it('matches accented Hungarian keywords case-insensitively', () => {
++    expect(matchesContent(rule({ keywords: ['árvíz'] }), ev({ title: 'ÁRVÍZ Szegeden' }))).toBe(true);
++  });
++  it('treats regex metacharacters literally', () => {
++    expect(matchesContent(rule({ keywords: ['(BTC)'] }), ev({ title: 'Bitcoin (BTC) falls' }))).toBe(true);
++    expect(matchesContent(rule({ keywords: ['(BTC)'] }), ev({ title: 'BTC falls' }))).toBe(false);
++    expect(matchesContent(rule({ keywords: ['c++'] }), ev({ title: 'Learning c++ today' }))).toBe(true);
++  });
++  it('ignores blank keywords', () => {
++    expect(matchesContent(rule({ keywords: ['  '] }), ev())).toBe(true);
++    expect(matchesContent(rule({ keywords: ['', ' ', 'zzz'] }), ev())).toBe(false);
++  });
++});
++
++describe('evaluate', () => {
++  it('returns null for a disabled rule', () => {
++    expect(evaluate(rule({ enabled: false }), hu, ev())).toBeNull();
++  });
++  it('returns null when content does not match', () => {
++    expect(evaluate(rule({ categories: ['disaster'] }), hu, ev())).toBeNull();
++  });
++  it('HU user, threshold 0.3, global 0.5 event fires', () => {
++    const r = evaluate(rule({ threshold: 0.3 }), hu, ev({ severity: 0.5 }));
++    expect(r?.fires).toBe(true);
++  });
++});

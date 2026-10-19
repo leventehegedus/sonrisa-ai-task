@@ -1,0 +1,219 @@
+# Review package: 163c627..HEAD
+
+## Commits
+cda7af5 fix(server): unique outbox files, outbox logging, slack timeout and error wrapping
+
+## Files changed
+ server/src/channels/email.ts | 12 ++++++++----
+ server/src/channels/index.ts |  2 +-
+ server/src/channels/slack.ts | 16 ++++++++++-----
+ server/test/channels.test.ts | 46 ++++++++++++++++++++++++++++++++------------
+ 4 files changed, 54 insertions(+), 22 deletions(-)
+
+## Diff
+diff --git a/server/src/channels/email.ts b/server/src/channels/email.ts
+index 4affca5..2cd9252 100644
+--- a/server/src/channels/email.ts
++++ b/server/src/channels/email.ts
+@@ -1,30 +1,34 @@
+ import fs from 'node:fs';
+ import path from 'node:path';
++import { randomUUID } from 'node:crypto';
+ import nodemailer from 'nodemailer';
+ import { z } from 'zod';
+ import type { ChannelAdapter } from './index';
+ 
+-export interface EmailOpts { smtpUrl?: string; outboxDir: string }
++export interface EmailOpts { smtpUrl?: string; outboxDir: string; log: (msg: string) => void }
++export const sanitizeTo = (to: string) => to.replace(/[^A-Za-z0-9@._-]/g, '_');
+ const configSchema = z.object({ to: z.email() });
+ 
+ export function emailAdapter(opts: EmailOpts): ChannelAdapter<{ to: string }> {
+   return {
+     type: 'email',
+     configSchema,
+     maskConfig: (config) => config,
+     async send(config, msg) {
+       const transport = nodemailer.createTransport(opts.smtpUrl ?? { jsonTransport: true });
++      const subject = `[World Alerts] ${msg.title}`;
+       const info = await transport.sendMail({
+         from: 'World Alerts <alerts@world-alerts.local>',
+         to: config.to,
+-        subject: `[World Alerts] ${msg.title}`,
++        subject,
+         text: [msg.summary, msg.url, msg.reason].filter(Boolean).join('\n'),
+       });
+       if (!opts.smtpUrl) {
+         fs.mkdirSync(opts.outboxDir, { recursive: true });
+-        const safeTo = config.to.replace(/[^A-Za-z0-9@._-]/g, '_');
+-        fs.writeFileSync(path.join(opts.outboxDir, `${Date.now()}-${safeTo}.json`), String(info.message));
++        const name = `${Date.now()}-${randomUUID().slice(0, 8)}-${sanitizeTo(config.to)}.json`;
++        fs.writeFileSync(path.join(opts.outboxDir, name), String(info.message), { flag: 'wx' });
++        opts.log(`email (outbox) to=${config.to} subject=${subject} file=${name}`);
+       }
+     },
+   };
+ }
+diff --git a/server/src/channels/index.ts b/server/src/channels/index.ts
+index 543ac59..cf80fa3 100644
+--- a/server/src/channels/index.ts
++++ b/server/src/channels/index.ts
+@@ -15,14 +15,14 @@ export interface ChannelAdapter<C> {
+ 
+ export function scrubSecrets(text: string, config: unknown): string {
+   if (typeof config !== 'object' || config === null) return text;
+   let out = text;
+   for (const v of Object.values(config)) if (typeof v === 'string' && v.length > 8) out = out.split(v).join('***');
+   return out;
+ }
+ 
+ export function createChannelRegistry(opts: { smtpUrl?: string; outboxDir: string; slackDryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }): Record<'email' | 'slack', ChannelAdapter<any>> {
+   return {
+-    email: emailAdapter({ smtpUrl: opts.smtpUrl, outboxDir: opts.outboxDir }),
++    email: emailAdapter({ smtpUrl: opts.smtpUrl, outboxDir: opts.outboxDir, log: opts.log }),
+     slack: slackAdapter({ dryRun: opts.slackDryRun, fetchImpl: opts.fetchImpl, log: opts.log }),
+   };
+ }
+diff --git a/server/src/channels/slack.ts b/server/src/channels/slack.ts
+index b5722af..456d493 100644
+--- a/server/src/channels/slack.ts
++++ b/server/src/channels/slack.ts
+@@ -7,19 +7,25 @@ const configSchema = z.object({
+ });
+ 
+ export function slackAdapter(opts: SlackOpts): ChannelAdapter<{ webhookUrl: string }> {
+   return {
+     type: 'slack',
+     configSchema,
+     maskConfig: (config) => ({ ...config, webhookUrl: `https://hooks.slack.com/…/${config.webhookUrl.slice(-4)}` }),
+     async send(config, msg) {
+       const text = [`*${msg.title}*`, msg.summary, msg.reason, msg.url].filter(Boolean).join('\n');
+       if (opts.dryRun) return opts.log(`[slack dry-run] ${text}`);
+-      const res = await (opts.fetchImpl ?? fetch)(config.webhookUrl, {
+-        method: 'POST',
+-        headers: { 'content-type': 'application/json' },
+-        body: JSON.stringify({ text }),
+-      });
++      let res: Response;
++      try {
++        res = await (opts.fetchImpl ?? fetch)(config.webhookUrl, {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({ text }),
++          signal: AbortSignal.timeout(10_000),
++        });
++      } catch (err) {
++        throw new Error(`Slack request failed: ${err instanceof Error ? err.name : 'Error'}`);
++      }
+       if (!res.ok) throw new Error(`Slack responded ${res.status}`);
+     },
+   };
+ }
+diff --git a/server/test/channels.test.ts b/server/test/channels.test.ts
+index 4083df1..93733d3 100644
+--- a/server/test/channels.test.ts
++++ b/server/test/channels.test.ts
+@@ -1,14 +1,15 @@
+ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
++import { sanitizeTo } from '../src/channels/email';
+ import { createChannelRegistry, buildMessage, scrubSecrets, type AlertMessage } from '../src/channels';
+ import type { EventRow, ScoreBreakdown } from '../src/types';
+ 
+ const msg: AlertMessage = { title: 'Flood in Hungary', summary: 'River rising', url: 'https://example.com/a', category: 'disaster', country: 'HU', importance: 0.9, reason: 'because' };
+ const SLACK = 'https://hooks.slack.com/services/T0/B0/abcdSECRET1234';
+ let dir: string;
+ beforeEach(() => { dir = fs.mkdtempSync(os.tmpdir() + '/wa-'); });
+ afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+ const reg = (o: Partial<Parameters<typeof createChannelRegistry>[0]> = {}) =>
+   createChannelRegistry({ outboxDir: path.join(dir, 'outbox'), slackDryRun: false, log: () => {}, ...o });
+@@ -17,33 +18,43 @@ describe('email', () => {
+   it('writes one JSON file in outbox containing the title', async () => {
+     await reg().email.send({ to: 'a@x.io' }, msg);
+     const files = fs.readdirSync(path.join(dir, 'outbox'));
+     expect(files).toHaveLength(1);
+     expect(files[0]).toMatch(/-a@x\.io\.json$/);
+     const body = fs.readFileSync(path.join(dir, 'outbox', files[0]), 'utf8');
+     expect(body).toContain('[World Alerts] Flood in Hungary');
+     expect(body).toContain('because');
+     expect(body).toContain('https://example.com/a');
+   });
+-  it('rejects or sanitizes filename-hostile addresses, never writing outside outbox', async () => {
+-    const r = reg();
+-    const parsed = r.email.configSchema.safeParse({ to: 'a/../b@x.io' });
+-    if (parsed.success) await r.email.send(parsed.data, msg);
+-    const out = path.join(dir, 'outbox');
+-    const inOut = fs.existsSync(out) ? fs.readdirSync(out) : [];
+-    for (const f of inOut) expect(f).not.toMatch(/[\\/]/);
+-    expect(fs.readdirSync(dir).filter((f) => f !== 'outbox')).toEqual([]);
+-  });
+-  it('sanitizes a hostile to directly', async () => {
+-    await reg().email.send({ to: '../../evil' }, msg);
++  it('schema rejects a/../b@x.io', () => {
++    expect(reg().email.configSchema.safeParse({ to: 'a/../b@x.io' }).success).toBe(false);
++  });
++  it('sanitizeTo yields the exact safe part for a traversal', () => {
++    expect(sanitizeTo('../../../x/evil')).toBe('.._.._.._x_evil');
++  });
++  it('send with a hostile to writes only inside outbox with sanitized name', async () => {
++    await reg().email.send({ to: '../../../x/evil' }, msg);
+     expect(fs.readdirSync(dir)).toEqual(['outbox']);
+-    expect(fs.readdirSync(path.join(dir, 'outbox'))[0]).not.toContain('/');
++    const [f] = fs.readdirSync(path.join(dir, 'outbox'));
++    expect(f).toMatch(/^\d+-[0-9a-f]{8}-\.\._\.\._\.\._x_evil\.json$/);
++  });
++  it('two back-to-back sends to one address make two files', async () => {
++    const r = reg();
++    await r.email.send({ to: 'a@x.io' }, msg);
++    await r.email.send({ to: 'a@x.io' }, msg);
++    expect(fs.readdirSync(path.join(dir, 'outbox'))).toHaveLength(2);
++  });
++  it('logs a line in outbox mode', async () => {
++    const log = vi.fn();
++    await reg({ log }).email.send({ to: 'a@x.io' }, msg);
++    expect(log).toHaveBeenCalledTimes(1);
++    expect(log.mock.calls[0][0]).toMatch(/^email \(outbox\) to=a@x\.io subject=\[World Alerts\] Flood in Hungary file=.+\.json$/);
+   });
+   it('validates email and returns to unmasked', () => {
+     const e = reg().email;
+     expect(e.configSchema.safeParse({ to: 'nope' }).success).toBe(false);
+     expect(e.maskConfig({ to: 'a@x.io' })).toEqual({ to: 'a@x.io' });
+   });
+ });
+ 
+ describe('slack', () => {
+   it('posts { text } once to the url', async () => {
+@@ -56,20 +67,31 @@ describe('slack', () => {
+     expect(text).toContain('Flood in Hungary');
+     expect(text).toContain('because');
+     expect(text).toContain('https://example.com/a');
+   });
+   it('throws on 500 without leaking the webhook url', async () => {
+     const fetchImpl = vi.fn(async () => new Response('no', { status: 500 }));
+     const err = await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg).catch((e) => e);
+     expect(err.message).toBe('Slack responded 500');
+     expect(err.message).not.toContain('SECRET');
+   });
++  it('passes an abort signal to fetch', async () => {
++    const fetchImpl = vi.fn(async () => new Response('ok'));
++    await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg);
++    expect((fetchImpl.mock.calls[0] as any)[1].signal).toBeInstanceOf(AbortSignal);
++  });
++  it('wraps fetch rejections without leaking the url', async () => {
++    const fetchImpl = vi.fn(async () => { throw new TypeError(`fail ${SLACK}`); });
++    const err = await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg).catch((e) => e);
++    expect(err.message).toBe('Slack request failed: TypeError');
++    expect(err.message).not.toContain('SECRET');
++  });
+   it('dry-run logs and does not fetch', async () => {
+     const fetchImpl = vi.fn();
+     const log = vi.fn();
+     await reg({ fetchImpl: fetchImpl as any, slackDryRun: true, log }).slack.send({ webhookUrl: SLACK }, msg);
+     expect(fetchImpl).not.toHaveBeenCalled();
+     expect(log).toHaveBeenCalledTimes(1);
+     expect(log.mock.calls[0][0]).toContain('Flood in Hungary');
+   });
+   it('rejects non-slack and http urls', () => {
+     const s = reg().slack.configSchema;

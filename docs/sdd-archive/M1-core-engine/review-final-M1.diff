@@ -1,0 +1,2020 @@
+74b1ec1 feat(server): source polling with isolated failures and scheduler
+f33a00e fix(server): dispatcher marks sent outside retry path, fails corrupt delivery data
+a386134 feat(server): outbox dispatcher with retry and backoff
+cda7af5 fix(server): unique outbox files, outbox logging, slack timeout and error wrapping
+163c627 feat(server): email and slack channel adapters with secret masking
+e60416f feat(server): ingest pipeline with dedup and scored deliveries
+37a2332 fix(server): harden source adapters (own-prop alert levels, http(s)-only urls, skip id-less items)
+609d5a4 feat(server): gdacs, rss, coingecko, manual source adapters
+70b1ea1 feat(server): rule content matching and evaluation
+65da286 feat(server): M49 geo lookup and region-weighted scoring
+40d754c feat(server): scaffold workspace, domain types, sqlite schema
+ .gitignore                          |     4 +
+ package-lock.json                   |  2839 ++++++++
+ package.json                        |    12 +
+ server/package.json                 |    25 +
+ server/src/channels/email.ts        |    34 +
+ server/src/channels/index.ts        |    28 +
+ server/src/channels/message.ts      |    12 +
+ server/src/channels/slack.ts        |    31 +
+ server/src/db/index.ts              |    12 +
+ server/src/db/rows.ts               |    21 +
+ server/src/db/schema.sql            |    69 +
+ server/src/geo/index.ts             |    31 +
+ server/src/geo/m49.csv              |   250 +
+ server/src/matching/index.ts        |    20 +
+ server/src/pipeline/dispatch.ts     |    54 +
+ server/src/pipeline/ingest.ts       |    42 +
+ server/src/pipeline/poll.ts         |    51 +
+ server/src/pipeline/scheduler.ts    |    46 +
+ server/src/scoring/index.ts         |    25 +
+ server/src/scoring/weights.ts       |     4 +
+ server/src/sources/coingecko.ts     |    48 +
+ server/src/sources/gdacs.ts         |    35 +
+ server/src/sources/index.ts         |    14 +
+ server/src/sources/manual.ts        |    30 +
+ server/src/sources/rss.ts           |    95 +
+ server/src/types.ts                 |     9 +
+ server/test/channels.test.ts        |   139 +
+ server/test/db.test.ts              |    70 +
+ server/test/dispatch.test.ts        |   127 +
+ server/test/fixtures/bbcworld.xml   |   228 +
+ server/test/fixtures/coingecko.json |     1 +
+ server/test/fixtures/gdacs.xml      | 12166 ++++++++++++++++++++++++++++++++++
+ server/test/fixtures/hvg.xml        |  1186 ++++
+ server/test/fixtures/telex.xml      |     2 +
+ server/test/geo.test.ts             |    22 +
+ server/test/helpers.ts              |    26 +
+ server/test/ingest.test.ts          |    87 +
+ server/test/matching.test.ts        |    53 +
+ server/test/poll.test.ts            |   207 +
+ server/test/scoring.test.ts         |    49 +
+ server/test/sources.test.ts         |   198 +
+ server/tsconfig.json                |    14 +
+ server/vitest.config.ts             |     5 +
+ 43 files changed, 18421 insertions(+)
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..cac87f8
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,4 @@
++node_modules
++data/
++web/dist
++test-results/
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..b16bd23
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,12 @@
++{
++  "name": "world-alerts",
++  "private": true,
++  "type": "module",
++  "engines": { "node": ">=24" },
++  "workspaces": ["server"],
++  "scripts": {
++    "test": "npm test -w server -w web --if-present",
++    "typecheck": "npm run typecheck -w server",
++    "dev": "npm run dev -w server"
++  }
++}
+diff --git a/server/package.json b/server/package.json
+new file mode 100644
+index 0000000..2b2911f
+--- /dev/null
++++ b/server/package.json
+@@ -0,0 +1,25 @@
++{
++  "name": "server",
++  "private": true,
++  "type": "module",
++  "scripts": {
++    "test": "vitest run",
++    "typecheck": "tsc --noEmit",
++    "dev": "tsx watch src/index.ts"
++  },
++  "dependencies": {
++    "better-sqlite3": "^13.0.3",
++    "fast-xml-parser": "^5.11.2",
++    "fastify": "^5.12.7",
++    "nodemailer": "^10.1.7",
++    "zod": "^4.6.7"
++  },
++  "devDependencies": {
++    "@types/better-sqlite3": "^9.6.0",
++    "@types/node": "^26.6.5",
++    "@types/nodemailer": "^8.0.2",
++    "tsx": "^4.23.15",
++    "typescript": "^7.0.2",
++    "vitest": "^5.0.5"
++  }
++}
+diff --git a/server/src/channels/email.ts b/server/src/channels/email.ts
+new file mode 100644
+index 0000000..2cd9252
+--- /dev/null
++++ b/server/src/channels/email.ts
+@@ -0,0 +1,34 @@
++import fs from 'node:fs';
++import path from 'node:path';
++import { randomUUID } from 'node:crypto';
++import nodemailer from 'nodemailer';
++import { z } from 'zod';
++import type { ChannelAdapter } from './index';
++
++export interface EmailOpts { smtpUrl?: string; outboxDir: string; log: (msg: string) => void }
++export const sanitizeTo = (to: string) => to.replace(/[^A-Za-z0-9@._-]/g, '_');
++const configSchema = z.object({ to: z.email() });
++
++export function emailAdapter(opts: EmailOpts): ChannelAdapter<{ to: string }> {
++  return {
++    type: 'email',
++    configSchema,
++    maskConfig: (config) => config,
++    async send(config, msg) {
++      const transport = nodemailer.createTransport(opts.smtpUrl ?? { jsonTransport: true });
++      const subject = `[World Alerts] ${msg.title}`;
++      const info = await transport.sendMail({
++        from: 'World Alerts <alerts@world-alerts.local>',
++        to: config.to,
++        subject,
++        text: [msg.summary, msg.url, msg.reason].filter(Boolean).join('\n'),
++      });
++      if (!opts.smtpUrl) {
++        fs.mkdirSync(opts.outboxDir, { recursive: true });
++        const name = `${Date.now()}-${randomUUID().slice(0, 8)}-${sanitizeTo(config.to)}.json`;
++        fs.writeFileSync(path.join(opts.outboxDir, name), String(info.message), { flag: 'wx' });
++        opts.log(`email (outbox) to=${config.to} subject=${subject} file=${name}`);
++      }
++    },
++  };
++}
+diff --git a/server/src/channels/index.ts b/server/src/channels/index.ts
+new file mode 100644
+index 0000000..cf80fa3
+--- /dev/null
++++ b/server/src/channels/index.ts
+@@ -0,0 +1,28 @@
++import type { z } from 'zod';
++import type { AlertMessage } from './message';
++import { emailAdapter } from './email';
++import { slackAdapter } from './slack';
++
++export type { AlertMessage } from './message';
++export { buildMessage } from './message';
++
++export interface ChannelAdapter<C> {
++  type: string;
++  configSchema: z.ZodType<C>;
++  maskConfig(config: C): unknown;
++  send(config: C, msg: AlertMessage): Promise<void>;
++}
++
++export function scrubSecrets(text: string, config: unknown): string {
++  if (typeof config !== 'object' || config === null) return text;
++  let out = text;
++  for (const v of Object.values(config)) if (typeof v === 'string' && v.length > 8) out = out.split(v).join('***');
++  return out;
++}
++
++export function createChannelRegistry(opts: { smtpUrl?: string; outboxDir: string; slackDryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }): Record<'email' | 'slack', ChannelAdapter<any>> {
++  return {
++    email: emailAdapter({ smtpUrl: opts.smtpUrl, outboxDir: opts.outboxDir, log: opts.log }),
++    slack: slackAdapter({ dryRun: opts.slackDryRun, fetchImpl: opts.fetchImpl, log: opts.log }),
++  };
++}
+diff --git a/server/src/channels/message.ts b/server/src/channels/message.ts
+new file mode 100644
+index 0000000..9259114
+--- /dev/null
++++ b/server/src/channels/message.ts
+@@ -0,0 +1,12 @@
++import type { Category, EventRow, ScoreBreakdown } from '../types';
++import { CRITICAL_SEVERITY } from '../scoring/weights';
++
++export interface AlertMessage { title: string; summary: string | null; url: string | null; category: Category; country: string | null; importance: number; reason: string }
++
++export function buildMessage(event: EventRow, b: ScoreBreakdown): AlertMessage {
++  const how = b.override
++    ? `critical override (severity ${b.severity.toFixed(2)} ≥ ${CRITICAL_SEVERITY})`
++    : `severity ${b.severity.toFixed(2)} × ${String(b.proximity)} (${b.proximityReason})`;
++  const reason = `importance ${b.importance.toFixed(2)} = ${how} ${b.fires ? '≥' : '<'} threshold ${b.threshold}`;
++  return { title: event.title, summary: event.summary, url: event.url, category: event.category, country: event.country, importance: b.importance, reason };
++}
+diff --git a/server/src/channels/slack.ts b/server/src/channels/slack.ts
+new file mode 100644
+index 0000000..456d493
+--- /dev/null
++++ b/server/src/channels/slack.ts
+@@ -0,0 +1,31 @@
++import { z } from 'zod';
++import type { ChannelAdapter } from './index';
++
++export interface SlackOpts { dryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }
++const configSchema = z.object({
++  webhookUrl: z.url({ protocol: /^https$/ }).refine((u) => u.startsWith('https://hooks.slack.com/'), 'must be a Slack webhook URL'),
++});
++
++export function slackAdapter(opts: SlackOpts): ChannelAdapter<{ webhookUrl: string }> {
++  return {
++    type: 'slack',
++    configSchema,
++    maskConfig: (config) => ({ ...config, webhookUrl: `https://hooks.slack.com/…/${config.webhookUrl.slice(-4)}` }),
++    async send(config, msg) {
++      const text = [`*${msg.title}*`, msg.summary, msg.reason, msg.url].filter(Boolean).join('\n');
++      if (opts.dryRun) return opts.log(`[slack dry-run] ${text}`);
++      let res: Response;
++      try {
++        res = await (opts.fetchImpl ?? fetch)(config.webhookUrl, {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({ text }),
++          signal: AbortSignal.timeout(10_000),
++        });
++      } catch (err) {
++        throw new Error(`Slack request failed: ${err instanceof Error ? err.name : 'Error'}`);
++      }
++      if (!res.ok) throw new Error(`Slack responded ${res.status}`);
++    },
++  };
++}
+diff --git a/server/src/db/index.ts b/server/src/db/index.ts
+new file mode 100644
+index 0000000..d5233dd
+--- /dev/null
++++ b/server/src/db/index.ts
+@@ -0,0 +1,12 @@
++import Database from 'better-sqlite3';
++import { readFileSync } from 'node:fs';
++
++const schema = readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
++
++export function openDb(path: string): Database.Database {
++  const db = new Database(path);
++  if (path !== ':memory:') db.pragma('journal_mode = WAL');
++  db.pragma('foreign_keys = ON');
++  db.exec(schema);
++  return db;
++}
+diff --git a/server/src/db/rows.ts b/server/src/db/rows.ts
+new file mode 100644
+index 0000000..d451f20
+--- /dev/null
++++ b/server/src/db/rows.ts
+@@ -0,0 +1,21 @@
++import type { Category, EventRow, Rule, Scope, User } from '../types';
++
++// Raw SQL rows (snake_case, JSON as TEXT, booleans as 0/1) -> domain types.
++export const rowToUser = (r: any): User => ({
++  id: r.id, name: r.name, email: r.email, homeCountry: r.home_country, isAdmin: !!r.is_admin,
++});
++
++export const rowToRule = (r: any): Rule => ({
++  id: r.id, userId: r.user_id, name: r.name,
++  categories: JSON.parse(r.categories) as Category[],
++  keywords: JSON.parse(r.keywords) as string[],
++  threshold: r.threshold,
++  channelIds: JSON.parse(r.channel_ids) as number[],
++  enabled: !!r.enabled,
++});
++
++export const rowToEvent = (r: any): EventRow => ({
++  id: r.id, source: r.source, externalId: r.external_id, category: r.category as Category,
++  title: r.title, summary: r.summary, url: r.url, country: r.country, scope: r.scope as Scope,
++  severity: r.severity, occurredAt: r.occurred_at, raw: JSON.parse(r.raw),
++});
+diff --git a/server/src/db/schema.sql b/server/src/db/schema.sql
+new file mode 100644
+index 0000000..8f6c938
+--- /dev/null
++++ b/server/src/db/schema.sql
+@@ -0,0 +1,69 @@
++CREATE TABLE IF NOT EXISTS users (
++  id INTEGER PRIMARY KEY,
++  name TEXT NOT NULL,
++  email TEXT NOT NULL,
++  home_country TEXT NOT NULL,
++  is_admin INTEGER NOT NULL DEFAULT 0
++);
++
++CREATE TABLE IF NOT EXISTS channels (
++  id INTEGER PRIMARY KEY,
++  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++  type TEXT NOT NULL CHECK (type IN ('email', 'slack')),
++  config TEXT NOT NULL,
++  enabled INTEGER NOT NULL DEFAULT 1
++);
++
++CREATE TABLE IF NOT EXISTS rules (
++  id INTEGER PRIMARY KEY,
++  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++  name TEXT NOT NULL,
++  categories TEXT NOT NULL DEFAULT '[]',
++  keywords TEXT NOT NULL DEFAULT '[]',
++  threshold REAL NOT NULL DEFAULT 0.5,
++  channel_ids TEXT NOT NULL DEFAULT '[]',
++  enabled INTEGER NOT NULL DEFAULT 1
++);
++
++CREATE TABLE IF NOT EXISTS events (
++  id INTEGER PRIMARY KEY,
++  source TEXT NOT NULL,
++  external_id TEXT NOT NULL,
++  category TEXT NOT NULL CHECK (category IN ('news', 'market', 'disaster')),
++  title TEXT NOT NULL,
++  summary TEXT,
++  url TEXT,
++  country TEXT,
++  scope TEXT NOT NULL CHECK (scope IN ('country', 'global', 'unknown')),
++  severity REAL NOT NULL,
++  occurred_at TEXT NOT NULL,
++  raw TEXT NOT NULL,
++  UNIQUE (source, external_id)
++);
++
++CREATE TABLE IF NOT EXISTS deliveries (
++  id INTEGER PRIMARY KEY,
++  rule_id INTEGER REFERENCES rules(id) ON DELETE SET NULL,
++  event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
++  channel_id INTEGER REFERENCES channels(id) ON DELETE SET NULL,
++  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
++  attempts INTEGER NOT NULL DEFAULT 0,
++  last_error TEXT,
++  score REAL NOT NULL,
++  score_breakdown TEXT NOT NULL,
++  created_at TEXT NOT NULL,
++  sent_at TEXT,
++  next_attempt_at TEXT,
++  UNIQUE (event_id, channel_id)
++);
++
++CREATE TABLE IF NOT EXISTS sources (
++  id INTEGER PRIMARY KEY,
++  type TEXT NOT NULL,
++  name TEXT NOT NULL,
++  config TEXT NOT NULL DEFAULT '{}',
++  enabled INTEGER NOT NULL DEFAULT 1,
++  poll_interval_s INTEGER NOT NULL,
++  last_polled_at TEXT,
++  last_error TEXT
++);
+diff --git a/server/src/geo/index.ts b/server/src/geo/index.ts
+new file mode 100644
+index 0000000..3d2850d
+--- /dev/null
++++ b/server/src/geo/index.ts
+@@ -0,0 +1,31 @@
++import { readFileSync } from 'node:fs';
++
++export interface Country { iso2: string; iso3: string; region: string; subregion: string }
++
++// Minimal CSV line split: handles double-quoted fields containing commas.
++// shortcut: no escaped quotes inside fields (none in the M49 file), swap for a CSV lib if the data changes.
++function splitLine(line: string): string[] {
++  const out: string[] = [];
++  let cur = '', quoted = false;
++  for (const ch of line) {
++    if (ch === '"') quoted = !quoted;
++    else if (ch === ',' && !quoted) { out.push(cur); cur = ''; }
++    else cur += ch;
++  }
++  out.push(cur);
++  return out;
++}
++
++const byIso2 = new Map<string, Country>();
++const iso3Map = new Map<string, string>();
++const lines = readFileSync(new URL('./m49.csv', import.meta.url), 'utf8').split(/\r?\n/);
++for (const line of lines.slice(1)) {
++  if (!line.trim()) continue;
++  const f = splitLine(line);
++  const c: Country = { iso2: f[1]!, iso3: f[2]!, region: f[5]!, subregion: f[6]! };
++  byIso2.set(c.iso2, c);
++  iso3Map.set(c.iso3, c.iso2);
++}
++
++export const lookupCountry = (iso2: string): Country | undefined => byIso2.get(iso2);
++export const iso3ToIso2 = (iso3: string): string | undefined => iso3Map.get(iso3);
+diff --git a/server/src/matching/index.ts b/server/src/matching/index.ts
+new file mode 100644
+index 0000000..ba89df7
+--- /dev/null
++++ b/server/src/matching/index.ts
+@@ -0,0 +1,20 @@
++import { score } from '../scoring';
++import type { EventRow, NewEvent, Rule, ScoreBreakdown, User } from '../types';
++
++const lower = (s: string) => s.toLocaleLowerCase('hu');
++
++export function matchesContent(
++  rule: Pick<Rule, 'categories' | 'keywords'>,
++  event: Pick<NewEvent, 'category' | 'title' | 'summary'>,
++): boolean {
++  if (rule.categories.length && !rule.categories.includes(event.category)) return false;
++  const keywords = rule.keywords.map((k) => lower(k.trim())).filter(Boolean);
++  if (!keywords.length) return true;
++  const text = lower(`${event.title} ${event.summary ?? ''}`);
++  return keywords.some((k) => text.includes(k));
++}
++
++export function evaluate(rule: Rule, user: User, event: EventRow): ScoreBreakdown | null {
++  if (!rule.enabled || !matchesContent(rule, event)) return null;
++  return score(event, user.homeCountry, rule.threshold);
++}
+diff --git a/server/src/pipeline/dispatch.ts b/server/src/pipeline/dispatch.ts
+new file mode 100644
+index 0000000..e1a4e9e
+--- /dev/null
++++ b/server/src/pipeline/dispatch.ts
+@@ -0,0 +1,54 @@
++import type { Database } from 'better-sqlite3';
++import { buildMessage, scrubSecrets, type ChannelAdapter } from '../channels';
++import { rowToEvent } from '../db/rows';
++import type { ScoreBreakdown } from '../types';
++
++export const MAX_ATTEMPTS = 3;
++const BASE_BACKOFF_MS = 30_000;
++const BATCH = 50;
++
++export async function dispatchPending(db: Database, registry: Record<string, ChannelAdapter<any>>, now: Date): Promise<{ sent: number; failed: number; retried: number }> {
++  const ts = now.toISOString();
++  const due = db.prepare(
++    `SELECT d.*, c.type AS c_type, c.config AS c_config, c.enabled AS c_enabled
++     FROM deliveries d LEFT JOIN channels c ON c.id = d.channel_id
++     WHERE d.status = 'pending' AND d.next_attempt_at <= ? ORDER BY d.next_attempt_at, d.id LIMIT ${BATCH}`,
++  ).all(ts) as any[];
++  const getEvent = db.prepare(`SELECT * FROM events WHERE id = ?`);
++  const markFailed = db.prepare(`UPDATE deliveries SET status = 'failed', last_error = ? WHERE id = ?`);
++  const markSent = db.prepare(`UPDATE deliveries SET status = 'sent', sent_at = ?, last_error = NULL, attempts = attempts + 1 WHERE id = ?`);
++  const markError = db.prepare(`UPDATE deliveries SET status = ?, attempts = ?, last_error = ?, next_attempt_at = ? WHERE id = ?`);
++  const out = { sent: 0, failed: 0, retried: 0 };
++
++  for (const d of due) {
++    const fail = (why: string) => { markFailed.run(why, d.id); out.failed++; };
++    if (d.channel_id === null) { fail('channel deleted'); continue; }
++    if (!d.c_enabled) { fail('channel disabled'); continue; }
++    const adapter = registry[d.c_type];
++    if (!adapter) { fail(`unknown channel type ${d.c_type}`); continue; }
++    let parsed;
++    try { parsed = adapter.configSchema.safeParse(JSON.parse(d.c_config)); } catch { parsed = null; }
++    if (!parsed?.success) { fail('invalid channel config'); continue; }
++    const config = parsed.data;
++
++    let msg;
++    try { msg = buildMessage(rowToEvent(getEvent.get(d.event_id)), JSON.parse(d.score_breakdown) as ScoreBreakdown); } catch { fail('corrupt delivery data'); continue; }
++
++    try {
++      await adapter.send(config, msg);
++    } catch (err: any) {
++      const attempts = d.attempts + 1;
++      const last = scrubSecrets(String(err?.message ?? err), config);
++      if (attempts >= MAX_ATTEMPTS) { markError.run('failed', attempts, last, d.next_attempt_at, d.id); out.failed++; }
++      else {
++        markError.run('pending', attempts, last, new Date(now.getTime() + BASE_BACKOFF_MS * 2 ** (attempts - 1)).toISOString(), d.id);
++        out.retried++;
++      }
++      continue;
++    }
++    // Outside the send try: a DB error here must not be routed into retry (would duplicate the alert).
++    markSent.run(ts, d.id);
++    out.sent++;
++  }
++  return out;
++}
+diff --git a/server/src/pipeline/ingest.ts b/server/src/pipeline/ingest.ts
+new file mode 100644
+index 0000000..bf5055d
+--- /dev/null
++++ b/server/src/pipeline/ingest.ts
+@@ -0,0 +1,42 @@
++import type { Database } from 'better-sqlite3';
++import { evaluate } from '../matching';
++import { rowToEvent, rowToRule, rowToUser } from '../db/rows';
++import type { EventRow, NewEvent } from '../types';
++
++export function ingest(db: Database, events: NewEvent[], now: Date): { inserted: EventRow[]; deliveriesCreated: number } {
++  const insertEvent = db.prepare(
++    `INSERT OR IGNORE INTO events (source, external_id, category, title, summary, url, country, scope, severity, occurred_at, raw)
++     VALUES (@source, @externalId, @category, @title, @summary, @url, @country, @scope, @severity, @occurredAt, @raw)
++     RETURNING *`,
++  );
++  const insertDelivery = db.prepare(
++    `INSERT OR IGNORE INTO deliveries (rule_id, event_id, channel_id, status, attempts, score, score_breakdown, created_at, next_attempt_at)
++     VALUES (?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
++  );
++  // Only enabled channels owned by the rule's user may receive deliveries.
++  const channelOk = db.prepare(`SELECT 1 FROM channels WHERE id = ? AND user_id = ? AND enabled = 1`);
++
++  return db.transaction(() => {
++    const users = new Map(db.prepare(`SELECT * FROM users`).all().map((r) => [(r as any).id as number, rowToUser(r)]));
++    const rules = db.prepare(`SELECT * FROM rules WHERE enabled = 1`).all().map(rowToRule);
++    const ts = now.toISOString();
++    const inserted: EventRow[] = [];
++    let deliveriesCreated = 0;
++    for (const e of events) {
++      const row = insertEvent.get({ ...e, raw: JSON.stringify(e.raw ?? null) });
++      if (!row) continue;
++      const event = rowToEvent(row);
++      inserted.push(event);
++      for (const rule of rules) {
++        const user = users.get(rule.userId);
++        const b = user && evaluate(rule, user, event);
++        if (!b || !b.fires) continue;
++        for (const channelId of rule.channelIds) {
++          if (!channelOk.get(channelId, rule.userId)) continue;
++          deliveriesCreated += insertDelivery.run(rule.id, event.id, channelId, b.importance, JSON.stringify(b), ts, ts).changes;
++        }
++      }
++    }
++    return { inserted, deliveriesCreated };
++  })();
++}
+diff --git a/server/src/pipeline/poll.ts b/server/src/pipeline/poll.ts
+new file mode 100644
+index 0000000..a1ce3db
+--- /dev/null
++++ b/server/src/pipeline/poll.ts
+@@ -0,0 +1,51 @@
++import type { Database } from 'better-sqlite3';
++import { sourceAdapters } from '../sources';
++import { ingest } from './ingest';
++
++const FETCH_TIMEOUT_MS = 15_000;
++const MAX_ERROR_LEN = 500;
++
++/** Fetch one source, normalize and ingest it. Never throws: failures land in `sources.last_error`. */
++export async function pollSource(db: Database, sourceId: number, deps: { fetchImpl: typeof fetch; now: () => Date }): Promise<{ ok: boolean; inserted: number; error?: string }> {
++  let row: any;
++  try {
++    row = db.prepare(`SELECT * FROM sources WHERE id = ?`).get(sourceId);
++  } catch (err) {
++    return { ok: false, inserted: 0, error: message(err) };
++  }
++  if (!row) return { ok: false, inserted: 0, error: 'source not found' };
++
++  let inserted = 0;
++  let error: string | null = null;
++  try {
++    inserted = await fetchAndIngest(db, row, deps);
++  } catch (err) {
++    error = message(err);
++  }
++  try {
++    db.prepare(`UPDATE sources SET last_polled_at = ?, last_error = ? WHERE id = ?`).run(deps.now().toISOString(), error, sourceId);
++  } catch (err) {
++    error ??= message(err);
++  }
++  return error === null ? { ok: true, inserted } : { ok: false, inserted: 0, error };
++}
++
++async function fetchAndIngest(db: Database, row: any, deps: { fetchImpl: typeof fetch; now: () => Date }): Promise<number> {
++  const adapter = Object.hasOwn(sourceAdapters, row.type) ? sourceAdapters[row.type as keyof typeof sourceAdapters] : undefined;
++  if (!adapter) throw new Error(`unknown source type ${row.type}`);
++  let parsed;
++  try { parsed = adapter.configSchema.safeParse(JSON.parse(row.config)); } catch { parsed = null; }
++  if (!parsed?.success) throw new Error('invalid config');
++  const config = parsed.data;
++
++  const res = await deps.fetchImpl(adapter.url(config), {
++    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
++    headers: { 'User-Agent': 'world-alerts/0.1' },
++  });
++  if (!res.ok) throw new Error(`HTTP ${res.status}`); // body deliberately not read into the error
++  const body = await res.text();
++  // normalize throws before ingest on a bad body, and ingest is one transaction: no partial events.
++  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now()).inserted.length;
++}
++
++const message = (err: unknown): string => String((err as Error)?.message ?? err).slice(0, MAX_ERROR_LEN);
+diff --git a/server/src/pipeline/scheduler.ts b/server/src/pipeline/scheduler.ts
+new file mode 100644
+index 0000000..18590aa
+--- /dev/null
++++ b/server/src/pipeline/scheduler.ts
+@@ -0,0 +1,46 @@
++import type { Database } from 'better-sqlite3';
++import type { ChannelAdapter } from '../channels';
++import { dispatchPending } from './dispatch';
++import { pollSource } from './poll';
++
++const TICK_MS = 10_000;
++
++export interface SchedulerDeps { fetchImpl: typeof fetch; registry: Record<string, ChannelAdapter<any>>; now: () => Date; log: (msg: string) => void }
++
++/** One scheduler tick: poll due sources sequentially, then dispatch. Never rejects. */
++export async function runTick(db: Database, deps: SchedulerDeps): Promise<{ polled: number; dispatch?: { sent: number; failed: number; retried: number } }> {
++  let polled = 0;
++  try {
++    const due = db.prepare(
++      `SELECT id, name FROM sources
++       WHERE enabled = 1 AND (last_polled_at IS NULL OR julianday(last_polled_at) <= julianday(?) - poll_interval_s / 86400.0)
++       ORDER BY id`,
++    ).all(deps.now().toISOString()) as { id: number; name: string }[];
++    for (const s of due) {
++      const r = await pollSource(db, s.id, deps);
++      polled++;
++      if (!r.ok) deps.log(`poll failed: source ${s.id} (${s.name}): ${r.error}`);
++    }
++  } catch (err) {
++    deps.log(`poll error: ${(err as Error)?.message ?? err}`);
++  }
++  try {
++    return { polled, dispatch: await dispatchPending(db, deps.registry, deps.now()) };
++  } catch (err) {
++    deps.log(`dispatch error: ${(err as Error)?.message ?? err}`);
++    return { polled };
++  }
++}
++
++export function startScheduler(db: Database, deps: SchedulerDeps): { stop(): void } {
++  let running = false;
++  const tick = async () => {
++    if (running) return; // previous tick still in flight
++    running = true;
++    try { await runTick(db, deps); } finally { running = false; }
++  };
++  void tick();
++  const timer = setInterval(tick, TICK_MS);
++  timer.unref();
++  return { stop: () => clearInterval(timer) };
++}
+diff --git a/server/src/scoring/index.ts b/server/src/scoring/index.ts
+new file mode 100644
+index 0000000..f6c5883
+--- /dev/null
++++ b/server/src/scoring/index.ts
+@@ -0,0 +1,25 @@
++import { lookupCountry } from '../geo';
++import type { NewEvent, ProximityReason, ScoreBreakdown } from '../types';
++import { CRITICAL_SEVERITY, EPSILON, WEIGHTS } from './weights';
++
++export function proximity(event: Pick<NewEvent, 'scope' | 'country'>, homeCountry: string): { weight: number; reason: ProximityReason } {
++  const w = (reason: ProximityReason) => ({ weight: WEIGHTS[reason], reason });
++  if (event.scope === 'global') return w('global');
++  if (event.scope === 'unknown' || !event.country) return w('unknown');
++  if (event.country === homeCountry) return w('home');
++  const ev = lookupCountry(event.country);
++  const home = lookupCountry(homeCountry);
++  if (!ev || !home) return w('elsewhere');
++  // Empty sub-region/region (e.g. Antarctica) never counts as a match.
++  if (ev.subregion && ev.subregion === home.subregion) return w('subregion');
++  if (ev.region && ev.region === home.region) return w('continent');
++  return w('elsewhere');
++}
++
++export function score(event: Pick<NewEvent, 'scope' | 'country' | 'severity'>, homeCountry: string, threshold: number): ScoreBreakdown {
++  const { weight, reason } = proximity(event, homeCountry);
++  const override = event.severity >= CRITICAL_SEVERITY;
++  const base = event.severity * weight;
++  const importance = override ? Math.max(base, event.severity) : base;
++  return { severity: event.severity, proximity: weight, proximityReason: reason, override, importance, threshold, fires: importance >= threshold - EPSILON };
++}
+diff --git a/server/src/scoring/weights.ts b/server/src/scoring/weights.ts
+new file mode 100644
+index 0000000..0eb53a8
+--- /dev/null
++++ b/server/src/scoring/weights.ts
+@@ -0,0 +1,4 @@
++export const WEIGHTS = { home: 1.0, subregion: 0.75, continent: 0.4, elsewhere: 0.2, global: 0.8, unknown: 0.2 } as const;
++export const CRITICAL_SEVERITY = 0.9;
++export const DEFAULT_THRESHOLD = 0.5;
++export const EPSILON = 1e-9;
+diff --git a/server/src/sources/coingecko.ts b/server/src/sources/coingecko.ts
+new file mode 100644
+index 0000000..622b52b
+--- /dev/null
++++ b/server/src/sources/coingecko.ts
+@@ -0,0 +1,48 @@
++import { z } from 'zod';
++import type { NewEvent } from '../types';
++import type { SourceAdapter } from './index';
++
++export interface CoingeckoConfig { coins: string[]; minChangePct: number }
++
++const Body = z.record(z.string(), z.object({ usd: z.number(), usd_24h_change: z.number() }));
++
++export const coingecko: SourceAdapter<CoingeckoConfig> = {
++  type: 'coingecko',
++  configSchema: z.object({
++    coins: z.array(z.string().regex(/^[a-z0-9-]+$/)).min(1).default(['bitcoin', 'ethereum']),
++    minChangePct: z.number().positive().default(3),
++  }) as z.ZodType<CoingeckoConfig>,
++  url: (c) =>
++    `https://api.coingecko.com/api/v3/simple/price?ids=${c.coins.join(',')}&vs_currencies=usd&include_24hr_change=true`,
++  normalize(body, config, now) {
++    let json: unknown;
++    try {
++      json = JSON.parse(body);
++    } catch {
++      throw new Error('coingecko: body is not JSON');
++    }
++    const parsed = Body.safeParse(json);
++    if (!parsed.success) throw new Error(`coingecko: unexpected body shape (${parsed.error.message})`);
++    const day = now.toISOString().slice(0, 10);
++    const events: NewEvent[] = [];
++    for (const coin of config.coins) {
++      const q = parsed.data[coin];
++      if (!q || Math.abs(q.usd_24h_change) < config.minChangePct) continue;
++      const pct = q.usd_24h_change;
++      events.push({
++        source: 'coingecko',
++        externalId: `${coin}:${day}`,
++        category: 'market',
++        title: `${coin[0]!.toUpperCase()}${coin.slice(1)} ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% in 24h`,
++        summary: `Price: $${q.usd}`,
++        url: `https://www.coingecko.com/en/coins/${coin}`,
++        scope: 'global',
++        country: null,
++        severity: Math.min(1, Math.abs(pct) / 6),
++        occurredAt: now.toISOString(),
++        raw: { [coin]: q },
++      });
++    }
++    return events;
++  },
++};
+diff --git a/server/src/sources/gdacs.ts b/server/src/sources/gdacs.ts
+new file mode 100644
+index 0000000..b1ba341
+--- /dev/null
++++ b/server/src/sources/gdacs.ts
+@@ -0,0 +1,35 @@
++import { z } from 'zod';
++import { iso3ToIso2 } from '../geo';
++import type { NewEvent } from '../types';
++import type { SourceAdapter } from './index';
++import { cleanText, httpUrl, isoDate, parseRssItems, text } from './rss';
++
++const SEVERITY: Record<string, number> = { Green: 0.3, Orange: 0.7, Red: 1.0 };
++
++export const gdacs: SourceAdapter<Record<string, never>> = {
++  type: 'gdacs',
++  configSchema: z.object({}).strict() as z.ZodType<Record<string, never>>,
++  url: () => 'https://www.gdacs.org/xml/rss.xml',
++  normalize(body, _config, now) {
++    return parseRssItems(body, 'gdacs').map((item): NewEvent => {
++      const eventId = text(item['gdacs:eventid']);
++      const level = text(item['gdacs:alertlevel']);
++      const severity = Object.hasOwn(SEVERITY, level) ? SEVERITY[level] : undefined;
++      if (!eventId || severity === undefined) throw new Error(`gdacs: item missing eventid or unknown alertlevel '${level}'`);
++      const country = iso3ToIso2(text(item['gdacs:iso3'])) ?? null;
++      return {
++        source: 'gdacs',
++        externalId: `${eventId}:${level}`,
++        category: 'disaster',
++        title: cleanText(text(item.title)) ?? '',
++        summary: cleanText(text(item.description)),
++        url: httpUrl(text(item.link)),
++        scope: country ? 'country' : 'unknown',
++        country,
++        severity,
++        occurredAt: isoDate(text(item.pubDate), now),
++        raw: item,
++      };
++    });
++  },
++};
+diff --git a/server/src/sources/index.ts b/server/src/sources/index.ts
+new file mode 100644
+index 0000000..1a92683
+--- /dev/null
++++ b/server/src/sources/index.ts
+@@ -0,0 +1,14 @@
++import type { z } from 'zod';
++import type { NewEvent } from '../types';
++import { gdacs } from './gdacs';
++import { rss } from './rss';
++import { coingecko } from './coingecko';
++
++export interface SourceAdapter<C> {
++  type: 'gdacs' | 'rss' | 'coingecko';
++  configSchema: z.ZodType<C>;
++  url(config: C): string;
++  normalize(body: string, config: C, now: Date): NewEvent[]; // pure; throws on unparseable body
++}
++
++export const sourceAdapters: Record<SourceAdapter<any>['type'], SourceAdapter<any>> = { gdacs, rss, coingecko };
+diff --git a/server/src/sources/manual.ts b/server/src/sources/manual.ts
+new file mode 100644
+index 0000000..254b174
+--- /dev/null
++++ b/server/src/sources/manual.ts
+@@ -0,0 +1,30 @@
++import { randomUUID } from 'node:crypto';
++import { z } from 'zod';
++import { lookupCountry } from '../geo';
++import type { NewEvent } from '../types';
++
++export const ManualEventInput = z.object({
++  category: z.enum(['news', 'market', 'disaster']),
++  title: z.string().trim().min(1),
++  summary: z.string().optional(),
++  url: z.url({ protocol: /^https?$/ }).optional(),
++  country: z.string().refine((c) => !!lookupCountry(c), 'unknown ISO2 country').optional(),
++  severity: z.number().min(0).max(1),
++});
++export type ManualEventInput = z.infer<typeof ManualEventInput>;
++
++export function manualEvent(input: ManualEventInput, now: Date): NewEvent {
++  return {
++    source: 'manual',
++    externalId: `manual:${randomUUID()}`,
++    category: input.category,
++    title: input.title,
++    summary: input.summary || null,
++    url: input.url ?? null,
++    scope: input.country ? 'country' : 'global',
++    country: input.country ?? null,
++    severity: input.severity,
++    occurredAt: now.toISOString(),
++    raw: input,
++  };
++}
+diff --git a/server/src/sources/rss.ts b/server/src/sources/rss.ts
+new file mode 100644
+index 0000000..bca778f
+--- /dev/null
++++ b/server/src/sources/rss.ts
+@@ -0,0 +1,95 @@
++import { XMLParser } from 'fast-xml-parser';
++import { z } from 'zod';
++import { lookupCountry } from '../geo';
++import type { NewEvent } from '../types';
++import type { SourceAdapter } from './index';
++
++export interface RssConfig { feedId: string; url: string; country: string | null; breakingKeywords: string[] }
++
++const parser = new XMLParser({
++  ignoreAttributes: false,
++  parseTagValue: false, // keep ids/titles as strings ("2026" must not become a number)
++  isArray: (name, jpath) => name === 'item' && jpath === 'rss.channel.item',
++});
++
++/** Parse an RSS 2.0 body into its <item> objects. Throws if there is no rss.channel. */
++export function parseRssItems(body: string, label: string): Record<string, unknown>[] {
++  let doc: any;
++  try {
++    doc = parser.parse(body);
++  } catch (err) {
++    throw new Error(`${label}: unparseable XML (${(err as Error).message})`);
++  }
++  const channel = doc?.rss?.channel;
++  if (!channel || typeof channel !== 'object') throw new Error(`${label}: no rss.channel in body`);
++  return channel.item ?? [];
++}
++
++/** Text content of a parsed node: plain string, or `{ '#text': ... }` when the tag has attributes. */
++export function text(node: unknown): string {
++  if (node == null) return '';
++  if (typeof node === 'object') return text((node as Record<string, unknown>)['#text']);
++  return String(node).trim();
++}
++
++const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
++
++// shortcut: regex HTML strip, use a sanitizer if summaries are ever rendered as HTML
++export function cleanText(s: string): string | null {
++  const out = s
++    .replace(/<[^>]*>/g, ' ')
++    .replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (m, e: string) => {
++      if (!e.startsWith('#')) return ENTITIES[e.toLowerCase()] ?? m;
++      const code = /^#x/i.test(e) ? parseInt(e.slice(2), 16) : Number(e.slice(1));
++      return code <= 0x10ffff ? String.fromCodePoint(code) : m;
++    })
++    .replace(/\s+/g, ' ')
++    .trim();
++  return out || null;
++}
++
++export function isoDate(pubDate: string, now: Date): string {
++  const d = new Date(pubDate);
++  return pubDate && !Number.isNaN(d.getTime()) ? d.toISOString() : now.toISOString();
++}
++
++const lower = (s: string) => s.toLocaleLowerCase('hu');
++
++/** Only http(s) links may become event.url (it is rendered as a link and sent in alerts). */
++export const httpUrl = (s: string): string | null => (/^https?:\/\//i.test(s) ? s : null);
++
++export const rss: SourceAdapter<RssConfig> = {
++  type: 'rss',
++  configSchema: z.object({
++    feedId: z.string().min(1),
++    url: z.url({ protocol: /^https?$/ }),
++    country: z.string().refine((c) => !!lookupCountry(c), 'unknown ISO2 country').nullable(),
++    breakingKeywords: z.array(z.string()),
++  }),
++  url: (c) => c.url,
++  normalize(body, config, now) {
++    const breaking = config.breakingKeywords.map((k) => lower(k.trim())).filter(Boolean);
++    return parseRssItems(body, `rss:${config.feedId}`).flatMap((item): NewEvent[] => {
++      const title = cleanText(text(item.title)) ?? '';
++      const rawLink = text(item.link);
++      const externalId = text(item.guid) || rawLink || title;
++      if (!externalId) return []; // no usable id: would collide on UNIQUE(source, external_id)
++      const link = httpUrl(rawLink);
++      const isBreaking = breaking.some((k) => lower(title).includes(k));
++      return [{
++        source: `rss:${config.feedId}`,
++        externalId,
++        category: 'news',
++        title,
++        summary: cleanText(text(item.description)),
++        url: link,
++        scope: config.country ? 'country' : 'global',
++        country: config.country,
++        // shortcut: RSS has no importance signal, upgrade to LLM scoring (non-goal v1)
++        severity: isBreaking ? 0.8 : 0.5,
++        occurredAt: isoDate(text(item.pubDate), now),
++        raw: item,
++      }];
++    });
++  },
++};
+diff --git a/server/src/types.ts b/server/src/types.ts
+new file mode 100644
+index 0000000..b646117
+--- /dev/null
++++ b/server/src/types.ts
+@@ -0,0 +1,9 @@
++export type Category = 'news' | 'market' | 'disaster';
++export type Scope = 'country' | 'global' | 'unknown';
++export interface NewEvent { source: string; externalId: string; category: Category; title: string; summary: string | null; url: string | null; scope: Scope; country: string | null; severity: number; occurredAt: string; raw: unknown }
++export interface EventRow extends NewEvent { id: number }
++export interface User { id: number; name: string; email: string; homeCountry: string; isAdmin: boolean }
++export interface Rule { id: number; userId: number; name: string; categories: Category[]; keywords: string[]; threshold: number; channelIds: number[]; enabled: boolean }
++export type ProximityReason = 'home' | 'subregion' | 'continent' | 'elsewhere' | 'global' | 'unknown';
++export interface ScoreBreakdown { severity: number; proximity: number; proximityReason: ProximityReason; override: boolean; importance: number; threshold: number; fires: boolean }
++export type DeliveryStatus = 'pending' | 'sent' | 'failed';
+diff --git a/server/test/channels.test.ts b/server/test/channels.test.ts
+new file mode 100644
+index 0000000..93733d3
+--- /dev/null
++++ b/server/test/channels.test.ts
+@@ -0,0 +1,139 @@
++import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { sanitizeTo } from '../src/channels/email';
++import { createChannelRegistry, buildMessage, scrubSecrets, type AlertMessage } from '../src/channels';
++import type { EventRow, ScoreBreakdown } from '../src/types';
++
++const msg: AlertMessage = { title: 'Flood in Hungary', summary: 'River rising', url: 'https://example.com/a', category: 'disaster', country: 'HU', importance: 0.9, reason: 'because' };
++const SLACK = 'https://hooks.slack.com/services/T0/B0/abcdSECRET1234';
++let dir: string;
++beforeEach(() => { dir = fs.mkdtempSync(os.tmpdir() + '/wa-'); });
++afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
++const reg = (o: Partial<Parameters<typeof createChannelRegistry>[0]> = {}) =>
++  createChannelRegistry({ outboxDir: path.join(dir, 'outbox'), slackDryRun: false, log: () => {}, ...o });
++
++describe('email', () => {
++  it('writes one JSON file in outbox containing the title', async () => {
++    await reg().email.send({ to: 'a@x.io' }, msg);
++    const files = fs.readdirSync(path.join(dir, 'outbox'));
++    expect(files).toHaveLength(1);
++    expect(files[0]).toMatch(/-a@x\.io\.json$/);
++    const body = fs.readFileSync(path.join(dir, 'outbox', files[0]), 'utf8');
++    expect(body).toContain('[World Alerts] Flood in Hungary');
++    expect(body).toContain('because');
++    expect(body).toContain('https://example.com/a');
++  });
++  it('schema rejects a/../b@x.io', () => {
++    expect(reg().email.configSchema.safeParse({ to: 'a/../b@x.io' }).success).toBe(false);
++  });
++  it('sanitizeTo yields the exact safe part for a traversal', () => {
++    expect(sanitizeTo('../../../x/evil')).toBe('.._.._.._x_evil');
++  });
++  it('send with a hostile to writes only inside outbox with sanitized name', async () => {
++    await reg().email.send({ to: '../../../x/evil' }, msg);
++    expect(fs.readdirSync(dir)).toEqual(['outbox']);
++    const [f] = fs.readdirSync(path.join(dir, 'outbox'));
++    expect(f).toMatch(/^\d+-[0-9a-f]{8}-\.\._\.\._\.\._x_evil\.json$/);
++  });
++  it('two back-to-back sends to one address make two files', async () => {
++    const r = reg();
++    await r.email.send({ to: 'a@x.io' }, msg);
++    await r.email.send({ to: 'a@x.io' }, msg);
++    expect(fs.readdirSync(path.join(dir, 'outbox'))).toHaveLength(2);
++  });
++  it('logs a line in outbox mode', async () => {
++    const log = vi.fn();
++    await reg({ log }).email.send({ to: 'a@x.io' }, msg);
++    expect(log).toHaveBeenCalledTimes(1);
++    expect(log.mock.calls[0][0]).toMatch(/^email \(outbox\) to=a@x\.io subject=\[World Alerts\] Flood in Hungary file=.+\.json$/);
++  });
++  it('validates email and returns to unmasked', () => {
++    const e = reg().email;
++    expect(e.configSchema.safeParse({ to: 'nope' }).success).toBe(false);
++    expect(e.maskConfig({ to: 'a@x.io' })).toEqual({ to: 'a@x.io' });
++  });
++});
++
++describe('slack', () => {
++  it('posts { text } once to the url', async () => {
++    const fetchImpl = vi.fn(async () => new Response('ok', { status: 200 }));
++    await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg);
++    expect(fetchImpl).toHaveBeenCalledTimes(1);
++    const [url, init] = fetchImpl.mock.calls[0] as any;
++    expect(url).toBe(SLACK);
++    const text = JSON.parse(init.body).text;
++    expect(text).toContain('Flood in Hungary');
++    expect(text).toContain('because');
++    expect(text).toContain('https://example.com/a');
++  });
++  it('throws on 500 without leaking the webhook url', async () => {
++    const fetchImpl = vi.fn(async () => new Response('no', { status: 500 }));
++    const err = await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg).catch((e) => e);
++    expect(err.message).toBe('Slack responded 500');
++    expect(err.message).not.toContain('SECRET');
++  });
++  it('passes an abort signal to fetch', async () => {
++    const fetchImpl = vi.fn(async () => new Response('ok'));
++    await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg);
++    expect((fetchImpl.mock.calls[0] as any)[1].signal).toBeInstanceOf(AbortSignal);
++  });
++  it('wraps fetch rejections without leaking the url', async () => {
++    const fetchImpl = vi.fn(async () => { throw new TypeError(`fail ${SLACK}`); });
++    const err = await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg).catch((e) => e);
++    expect(err.message).toBe('Slack request failed: TypeError');
++    expect(err.message).not.toContain('SECRET');
++  });
++  it('dry-run logs and does not fetch', async () => {
++    const fetchImpl = vi.fn();
++    const log = vi.fn();
++    await reg({ fetchImpl: fetchImpl as any, slackDryRun: true, log }).slack.send({ webhookUrl: SLACK }, msg);
++    expect(fetchImpl).not.toHaveBeenCalled();
++    expect(log).toHaveBeenCalledTimes(1);
++    expect(log.mock.calls[0][0]).toContain('Flood in Hungary');
++  });
++  it('rejects non-slack and http urls', () => {
++    const s = reg().slack.configSchema;
++    expect(s.safeParse({ webhookUrl: 'http://example.com' }).success).toBe(false);
++    expect(s.safeParse({ webhookUrl: 'https://example.com/x' }).success).toBe(false);
++    expect(s.safeParse({ webhookUrl: SLACK }).success).toBe(true);
++  });
++  it('masks to last 4 chars only', () => {
++    const m = reg().slack.maskConfig({ webhookUrl: SLACK }) as { webhookUrl: string };
++    expect(m.webhookUrl).toBe('https://hooks.slack.com/…/1234');
++    expect(m.webhookUrl).not.toContain('SECRET');
++  });
++});
++
++describe('scrubSecrets', () => {
++  const cfg = { webhookUrl: SLACK };
++  it('removes every occurrence', () => {
++    const out = scrubSecrets(`failed ${SLACK} and again ${SLACK}`, cfg);
++    expect(out).not.toContain('SECRET');
++    expect(out).toBe('failed *** and again ***');
++  });
++  it('ignores short values and non-object config', () => {
++    expect(scrubSecrets('to a@x.io', { to: 'a@x.io' })).toBe('to a@x.io');
++    expect(scrubSecrets(`x ${SLACK}`, null)).toBe(`x ${SLACK}`);
++    expect(scrubSecrets(`x ${SLACK}`, SLACK)).toBe(`x ${SLACK}`);
++  });
++});
++
++describe('buildMessage', () => {
++  const ev = { id: 1, source: 's', externalId: 'e', category: 'disaster', title: 'T', summary: null, url: null, scope: 'country', country: 'HU', severity: 0.6667, occurredAt: '2026-01-01T00:00:00Z', raw: {} } as EventRow;
++  it('normal reason', () => {
++    const b: ScoreBreakdown = { severity: 0.6667, proximity: 0.8, proximityReason: 'global', override: false, importance: 0.5333, threshold: 0.5, fires: true };
++    const m = buildMessage(ev, b);
++    expect(m.reason).toBe('importance 0.53 = severity 0.67 × 0.8 (global) ≥ threshold 0.5');
++    expect(m).toMatchObject({ title: 'T', summary: null, url: null, category: 'disaster', country: 'HU', importance: 0.5333 });
++  });
++  it('not firing uses <', () => {
++    const b: ScoreBreakdown = { severity: 0.6667, proximity: 0.8, proximityReason: 'global', override: false, importance: 0.5333, threshold: 0.6, fires: false };
++    expect(buildMessage(ev, b).reason).toBe('importance 0.53 = severity 0.67 × 0.8 (global) < threshold 0.6');
++  });
++  it('override reason', () => {
++    const b: ScoreBreakdown = { severity: 1, proximity: 0.2, proximityReason: 'elsewhere', override: true, importance: 1, threshold: 0.5, fires: true };
++    expect(buildMessage(ev, b).reason).toBe('importance 1.00 = critical override (severity 1.00 ≥ 0.9) ≥ threshold 0.5');
++  });
++});
+diff --git a/server/test/db.test.ts b/server/test/db.test.ts
+new file mode 100644
+index 0000000..fe11400
+--- /dev/null
++++ b/server/test/db.test.ts
+@@ -0,0 +1,70 @@
++import { describe, it, expect } from 'vitest';
++import { openDb } from '../src/db';
++
++function seed(db: ReturnType<typeof openDb>) {
++  const user = Number(
++    db.prepare(`INSERT INTO users (name, email, home_country, is_admin) VALUES ('a','a@x.io','HU',0)`).run().lastInsertRowid,
++  );
++  const channel = Number(
++    db.prepare(`INSERT INTO channels (user_id, type, config, enabled) VALUES (?, 'email', '{}', 1)`).run(user).lastInsertRowid,
++  );
++  const rule = Number(
++    db
++      .prepare(`INSERT INTO rules (user_id, name, categories, keywords, threshold, channel_ids, enabled) VALUES (?, 'r', '[]', '[]', 0.5, '[]', 1)`)
++      .run(user).lastInsertRowid,
++  );
++  const insertEvent = db.prepare(
++    `INSERT OR IGNORE INTO events (source, external_id, category, title, scope, severity, occurred_at, raw)
++     VALUES ('gdacs', 'e1', 'disaster', 't', 'global', 0.5, '2026-01-01T00:00:00Z', '{}')`,
++  );
++  insertEvent.run();
++  const event = Number(db.prepare(`SELECT id FROM events`).pluck().get());
++  return { user, channel, rule, event, insertEvent };
++}
++
++describe('openDb', () => {
++  it('creates all 6 tables', () => {
++    const db = openDb(':memory:');
++    const names = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).pluck().all() as string[];
++    for (const t of ['users', 'channels', 'rules', 'events', 'deliveries', 'sources']) expect(names).toContain(t);
++  });
++
++  it('dedups events on (source, external_id)', () => {
++    const db = openDb(':memory:');
++    const { insertEvent } = seed(db);
++    insertEvent.run();
++    expect(db.prepare(`SELECT count(*) FROM events`).pluck().get()).toBe(1);
++  });
++
++  it('dedups deliveries on (event_id, channel_id)', () => {
++    const db = openDb(':memory:');
++    const { rule, event, channel } = seed(db);
++    const ins = db.prepare(
++      `INSERT OR IGNORE INTO deliveries (rule_id, event_id, channel_id, status, score, score_breakdown, created_at)
++       VALUES (?, ?, ?, 'pending', 0.9, '{}', '2026-01-01T00:00:00Z')`,
++    );
++    ins.run(rule, event, channel);
++    ins.run(rule, event, channel);
++    expect(db.prepare(`SELECT count(*) FROM deliveries`).pluck().get()).toBe(1);
++  });
++
++  it('cascades user delete to channels and rules', () => {
++    const db = openDb(':memory:');
++    const { user } = seed(db);
++    db.prepare(`DELETE FROM users WHERE id = ?`).run(user);
++    expect(db.prepare(`SELECT count(*) FROM channels`).pluck().get()).toBe(0);
++    expect(db.prepare(`SELECT count(*) FROM rules`).pluck().get()).toBe(0);
++  });
++
++  it('keeps delivery with NULL channel_id when channel is deleted', () => {
++    const db = openDb(':memory:');
++    const { rule, event, channel } = seed(db);
++    db.prepare(
++      `INSERT INTO deliveries (rule_id, event_id, channel_id, status, score, score_breakdown, created_at)
++       VALUES (?, ?, ?, 'pending', 0.9, '{}', '2026-01-01T00:00:00Z')`,
++    ).run(rule, event, channel);
++    db.prepare(`DELETE FROM channels WHERE id = ?`).run(channel);
++    const row = db.prepare(`SELECT channel_id FROM deliveries`).get() as { channel_id: number | null };
++    expect(row.channel_id).toBeNull();
++  });
++});
+diff --git a/server/test/dispatch.test.ts b/server/test/dispatch.test.ts
+new file mode 100644
+index 0000000..5f2c731
+--- /dev/null
++++ b/server/test/dispatch.test.ts
+@@ -0,0 +1,127 @@
++import { describe, it, expect } from 'vitest';
++import { z } from 'zod';
++import { dispatchPending, MAX_ATTEMPTS } from '../src/pipeline/dispatch';
++import { ingest } from '../src/pipeline/ingest';
++import type { ChannelAdapter, AlertMessage } from '../src/channels';
++import { addChannel, addRule, addUser, makeDb } from './helpers';
++import type { NewEvent } from '../src/types';
++
++const t0 = new Date('2026-10-19T12:00:00Z');
++const plus = (d: Date, s: number) => new Date(d.getTime() + s * 1000);
++const ev = (o: Partial<NewEvent> = {}): NewEvent => ({
++  source: 's', externalId: 'e1', category: 'news', title: 'Hello', summary: null, url: null,
++  scope: 'country', country: 'HU', severity: 0.5, occurredAt: '2026-10-19T00:00:00Z', raw: {}, ...o,
++});
++const SECRET = 'https://hooks.slack.com/services/T000/B000/SECRETSECRET';
++
++function fake(impl: (cfg: any, msg: AlertMessage) => Promise<void>) {
++  const calls: AlertMessage[] = [];
++  const adapter: ChannelAdapter<any> = {
++    type: 'email', configSchema: z.object({ to: z.string() }).loose(), maskConfig: (c) => c,
++    send: async (c, m) => { calls.push(m); await impl(c, m); },
++  };
++  return { adapter, calls, registry: { email: adapter } as Record<string, ChannelAdapter<any>> };
++}
++function setup(config?: unknown) {
++  const db = makeDb();
++  const user = addUser(db);
++  const channel = addChannel(db, user, config === undefined ? {} : { config });
++  addRule(db, user, { channelIds: [channel] });
++  ingest(db, [ev()], t0);
++  const d = () => db.prepare(`SELECT * FROM deliveries`).get() as any;
++  return { db, user, channel, d };
++}
++
++describe('dispatchPending', () => {
++  it('sends a due delivery and marks it sent', async () => {
++    const { db, d } = setup();
++    const f = fake(async () => {});
++    expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 1, failed: 0, retried: 0 });
++    expect(f.calls[0].title).toBe('Hello');
++    expect(d()).toMatchObject({ status: 'sent', attempts: 1, last_error: null, sent_at: t0.toISOString() });
++  });
++
++  it('retries with 30s then 60s backoff and fails at MAX_ATTEMPTS', async () => {
++    const { db, d } = setup();
++    const f = fake(async () => { throw new Error('boom'); });
++    expect(MAX_ATTEMPTS).toBe(3);
++    expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 0, failed: 0, retried: 1 });
++    expect(d()).toMatchObject({ status: 'pending', attempts: 1, last_error: 'boom', next_attempt_at: plus(t0, 30).toISOString() });
++    // not yet due
++    expect(await dispatchPending(db, f.registry, plus(t0, 29))).toEqual({ sent: 0, failed: 0, retried: 0 });
++    const t1 = plus(t0, 30);
++    expect(await dispatchPending(db, f.registry, t1)).toEqual({ sent: 0, failed: 0, retried: 1 });
++    expect(d()).toMatchObject({ status: 'pending', attempts: 2, next_attempt_at: plus(t1, 60).toISOString() });
++    expect(await dispatchPending(db, f.registry, plus(t1, 60))).toEqual({ sent: 0, failed: 1, retried: 0 });
++    expect(d()).toMatchObject({ status: 'failed', attempts: 3, last_error: 'boom' });
++    expect(f.calls).toHaveLength(3);
++  });
++
++  it('skips a delivery whose next_attempt_at is in the future', async () => {
++    const { db, d } = setup();
++    db.prepare(`UPDATE deliveries SET next_attempt_at = ?`).run(plus(t0, 10).toISOString());
++    const f = fake(async () => {});
++    expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 0, failed: 0, retried: 0 });
++    expect(f.calls).toHaveLength(0);
++    expect(d().status).toBe('pending');
++  });
++
++  it('fails a delivery whose channel was deleted, without sending', async () => {
++    const { db, channel, d } = setup();
++    db.prepare(`DELETE FROM channels WHERE id = ?`).run(channel);
++    const f = fake(async () => {});
++    expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 0, failed: 1, retried: 0 });
++    expect(d()).toMatchObject({ status: 'failed', last_error: 'channel deleted', attempts: 0 });
++    expect(f.calls).toHaveLength(0);
++  });
++
++  it('fails permanently for a disabled channel, unknown type, or invalid config', async () => {
++    const f = fake(async () => {});
++    const a = setup(); a.db.prepare(`UPDATE channels SET enabled = 0`).run();
++    expect(await dispatchPending(a.db, f.registry, t0)).toEqual({ sent: 0, failed: 1, retried: 0 });
++    expect(a.d()).toMatchObject({ status: 'failed', last_error: 'channel disabled', attempts: 0 });
++    const b = setup(); b.db.prepare(`UPDATE channels SET type = 'slack'`).run();
++    await dispatchPending(b.db, f.registry, t0);
++    expect(b.d()).toMatchObject({ status: 'failed', last_error: 'unknown channel type slack', attempts: 0 });
++    const c = setup({ to: 5 });
++    await dispatchPending(c.db, f.registry, t0);
++    expect(c.d()).toMatchObject({ status: 'failed', last_error: 'invalid channel config', attempts: 0 });
++    expect(f.calls).toHaveLength(0);
++  });
++
++  it('stores error messages scrubbed of the webhook url', async () => {
++    const { db, d } = setup({ to: 'x@example.com', webhookUrl: SECRET });
++    const f = fake(async () => { throw new Error(`POST ${SECRET} failed`); });
++    await dispatchPending(db, f.registry, t0);
++    expect(d().last_error).toBe('POST *** failed');
++    expect(d().last_error).not.toContain('SECRETSECRET');
++  });
++
++  it('a throwing adapter does not abort the remaining deliveries', async () => {
++    const { db } = setup();
++    ingest(db, [ev({ externalId: 'e2', title: 'Second' })], t0);
++    let n = 0;
++    const f = fake(async () => { if (n++ === 0) throw new Error('first dies'); });
++    expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 1, failed: 0, retried: 1 });
++    const rows = db.prepare(`SELECT status FROM deliveries ORDER BY id`).all() as any[];
++    expect(rows.map((r) => r.status)).toEqual(['pending', 'sent']);
++  });
++
++  it('does not retry (no duplicate send) when marking sent fails after a successful send', async () => {
++    const { db, d } = setup();
++    db.exec(`CREATE TRIGGER no_sent BEFORE UPDATE ON deliveries WHEN NEW.status = 'sent' BEGIN SELECT RAISE(ABORT, 'disk full'); END`);
++    const f = fake(async () => {});
++    await expect(dispatchPending(db, f.registry, t0)).rejects.toThrow('disk full');
++    expect(f.calls).toHaveLength(1);
++    expect(d()).toMatchObject({ status: 'pending', attempts: 0, last_error: null, next_attempt_at: t0.toISOString() });
++  });
++
++  it('fails immediately as corrupt when score_breakdown is not JSON', async () => {
++    const { db, d } = setup();
++    db.prepare(`UPDATE deliveries SET score_breakdown = '{not json'`).run();
++    const f = fake(async () => {});
++    expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 0, failed: 1, retried: 0 });
++    expect(d()).toMatchObject({ status: 'failed', last_error: 'corrupt delivery data', attempts: 0 });
++    expect(f.calls).toHaveLength(0);
++  });
++});
+diff --git a/server/test/geo.test.ts b/server/test/geo.test.ts
+new file mode 100644
+index 0000000..e6f47c6
+--- /dev/null
++++ b/server/test/geo.test.ts
+@@ -0,0 +1,22 @@
++import { describe, it, expect } from 'vitest';
++import { lookupCountry, iso3ToIso2 } from '../src/geo';
++
++describe('geo', () => {
++  it.each([
++    ['HU', 'HUN', 'Europe', 'Eastern Europe'],
++    ['AT', 'AUT', 'Europe', 'Western Europe'],
++    ['RO', 'ROU', 'Europe', 'Eastern Europe'],
++    ['NP', 'NPL', 'Asia', 'Southern Asia'],
++  ])('lookupCountry(%s)', (iso2, iso3, region, subregion) => {
++    expect(lookupCountry(iso2)).toEqual({ iso2, iso3, region, subregion });
++  });
++  it('handles quoted names with commas', () => expect(lookupCountry('KR')).toBeDefined());
++  it('XK is not in the table', () => expect(lookupCountry('XK')).toBeUndefined());
++  it('iso3ToIso2', () => {
++    expect(iso3ToIso2('VUT')).toBe('VU');
++    expect(iso3ToIso2('XXX')).toBeUndefined();
++  });
++  it('Antarctica has empty region/subregion', () => {
++    expect(lookupCountry('AQ')).toMatchObject({ region: '', subregion: '' });
++  });
++});
+diff --git a/server/test/helpers.ts b/server/test/helpers.ts
+new file mode 100644
+index 0000000..3daa7e7
+--- /dev/null
++++ b/server/test/helpers.ts
+@@ -0,0 +1,26 @@
++import { openDb } from '../src/db';
++import type { Category } from '../src/types';
++
++type Db = ReturnType<typeof openDb>;
++
++export const makeDb = (): Db => openDb(':memory:');
++
++// Factories insert one row and return its id.
++export function addUser(db: Db, o: { name?: string; email?: string; homeCountry?: string; isAdmin?: boolean } = {}): number {
++  return Number(db.prepare(`INSERT INTO users (name, email, home_country, is_admin) VALUES (?, ?, ?, ?)`)
++    .run(o.name ?? 'User', o.email ?? 'u@example.com', o.homeCountry ?? 'HU', o.isAdmin ? 1 : 0).lastInsertRowid);
++}
++
++export function addChannel(db: Db, userId: number, o: { type?: 'email' | 'slack'; config?: unknown; enabled?: boolean } = {}): number {
++  return Number(db.prepare(`INSERT INTO channels (user_id, type, config, enabled) VALUES (?, ?, ?, ?)`)
++    .run(userId, o.type ?? 'email', JSON.stringify(o.config ?? { to: 'u@example.com' }), o.enabled === false ? 0 : 1).lastInsertRowid);
++}
++
++export function addRule(
++  db: Db, userId: number,
++  o: { name?: string; categories?: Category[]; keywords?: string[]; threshold?: number; channelIds?: number[]; enabled?: boolean } = {},
++): number {
++  return Number(db.prepare(`INSERT INTO rules (user_id, name, categories, keywords, threshold, channel_ids, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`)
++    .run(userId, o.name ?? 'rule', JSON.stringify(o.categories ?? []), JSON.stringify(o.keywords ?? []),
++      o.threshold ?? 0.5, JSON.stringify(o.channelIds ?? []), o.enabled === false ? 0 : 1).lastInsertRowid);
++}
+diff --git a/server/test/ingest.test.ts b/server/test/ingest.test.ts
+new file mode 100644
+index 0000000..288185f
+--- /dev/null
++++ b/server/test/ingest.test.ts
+@@ -0,0 +1,87 @@
++import { describe, it, expect } from 'vitest';
++import { ingest } from '../src/pipeline/ingest';
++import { addChannel, addRule, addUser, makeDb } from './helpers';
++import type { NewEvent } from '../src/types';
++
++const now = new Date('2026-10-19T12:00:00Z');
++const ev = (o: Partial<NewEvent> = {}): NewEvent => ({
++  source: 's', externalId: 'e1', category: 'news', title: 'Hello', summary: null, url: null,
++  scope: 'country', country: 'HU', severity: 0.5, occurredAt: '2026-10-19T00:00:00Z', raw: {}, ...o,
++});
++const deliveries = (db: ReturnType<typeof makeDb>) => db.prepare(`SELECT * FROM deliveries`).all() as any[];
++
++function setup() {
++  const db = makeDb();
++  const user = addUser(db, { homeCountry: 'HU' });
++  const channel = addChannel(db, user);
++  const rule = addRule(db, user, { channelIds: [channel] });
++  return { db, user, channel, rule };
++}
++
++describe('ingest', () => {
++  it('creates a pending scored delivery for a HU event and HU user', () => {
++    const { db, channel, rule } = setup();
++    const r = ingest(db, [ev()], now);
++    expect(r.inserted).toHaveLength(1);
++    expect(r.deliveriesCreated).toBe(1);
++    const [d] = deliveries(db);
++    expect(d).toMatchObject({ status: 'pending', attempts: 0, rule_id: rule, channel_id: channel, event_id: r.inserted[0].id,
++      score: 0.5, created_at: now.toISOString(), next_attempt_at: now.toISOString() });
++    expect(JSON.parse(d.score_breakdown).proximityReason).toBe('home');
++  });
++
++  it('re-ingesting the same event inserts nothing and keeps one delivery', () => {
++    const { db } = setup();
++    ingest(db, [ev()], now);
++    const r = ingest(db, [ev()], now);
++    expect(r.inserted).toEqual([]);
++    expect(r.deliveriesCreated).toBe(0);
++    expect(deliveries(db)).toHaveLength(1);
++  });
++
++  it('two rules matching on the same channel give one delivery', () => {
++    const { db, user, channel } = setup();
++    addRule(db, user, { name: 'second', channelIds: [channel] });
++    const r = ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(1);
++    expect(r.deliveriesCreated).toBe(1);
++  });
++
++  it('a NP event for a HU user gives no delivery', () => {
++    const { db } = setup();
++    const r = ingest(db, [ev({ country: 'NP' })], now);
++    expect(r.inserted).toHaveLength(1);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('a disabled channel gets no delivery', () => {
++    const { db, user } = setup();
++    const off = addChannel(db, user, { enabled: false });
++    db.prepare(`UPDATE rules SET channel_ids = ?`).run(JSON.stringify([off]));
++    ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('a rule never delivers to another user\'s channel', () => {
++    const { db, user } = setup();
++    const other = addUser(db, { email: 'o@example.com' });
++    const foreign = addChannel(db, other);
++    db.prepare(`UPDATE rules SET channel_ids = ? WHERE user_id = ?`).run(JSON.stringify([foreign]), user);
++    ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('a nonexistent channel id gets no delivery and no NULL channel_id row', () => {
++    const { db, user } = setup();
++    db.prepare(`UPDATE rules SET channel_ids = '[9999]' WHERE user_id = ?`).run(user);
++    ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('a disabled rule gets no delivery', () => {
++    const { db } = setup();
++    db.prepare(`UPDATE rules SET enabled = 0`).run();
++    ingest(db, [ev()], now);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++});
+diff --git a/server/test/matching.test.ts b/server/test/matching.test.ts
+new file mode 100644
+index 0000000..b37ad88
+--- /dev/null
++++ b/server/test/matching.test.ts
+@@ -0,0 +1,53 @@
++import { describe, it, expect } from 'vitest';
++import { matchesContent, evaluate } from '../src/matching';
++import type { EventRow, Rule, User } from '../src/types';
++
++const ev = (o: Partial<EventRow> = {}): EventRow => ({
++  id: 1, source: 's', externalId: 'x', category: 'news', title: 'Title', summary: null, url: null,
++  scope: 'global', country: null, severity: 0.5, occurredAt: '2026-10-19T00:00:00Z', raw: null, ...o,
++});
++const rule = (o: Partial<Rule> = {}): Rule => ({
++  id: 1, userId: 1, name: 'r', categories: [], keywords: [], threshold: 0.5, channelIds: [], enabled: true, ...o,
++});
++const hu: User = { id: 1, name: 'A', email: 'a@b.c', homeCountry: 'HU', isAdmin: false };
++
++describe('matchesContent', () => {
++  it('empty categories and keywords match anything', () => {
++    expect(matchesContent(rule(), ev())).toBe(true);
++  });
++  it('category mismatch is false', () => {
++    expect(matchesContent(rule({ categories: ['market'] }), ev())).toBe(false);
++    expect(matchesContent(rule({ categories: ['market', 'news'] }), ev())).toBe(true);
++  });
++  it('keywords are OR, case-insensitive, over title and summary', () => {
++    const e = ev({ title: 'Storm warning', summary: 'Heavy RAIN expected' });
++    expect(matchesContent(rule({ keywords: ['nope', 'rain'] }), e)).toBe(true);
++    expect(matchesContent(rule({ keywords: ['STORM'] }), e)).toBe(true);
++    expect(matchesContent(rule({ keywords: ['nope'] }), e)).toBe(false);
++  });
++  it('matches accented Hungarian keywords case-insensitively', () => {
++    expect(matchesContent(rule({ keywords: ['árvíz'] }), ev({ title: 'ÁRVÍZ Szegeden' }))).toBe(true);
++  });
++  it('treats regex metacharacters literally', () => {
++    expect(matchesContent(rule({ keywords: ['(BTC)'] }), ev({ title: 'Bitcoin (BTC) falls' }))).toBe(true);
++    expect(matchesContent(rule({ keywords: ['(BTC)'] }), ev({ title: 'BTC falls' }))).toBe(false);
++    expect(matchesContent(rule({ keywords: ['c++'] }), ev({ title: 'Learning c++ today' }))).toBe(true);
++  });
++  it('ignores blank keywords', () => {
++    expect(matchesContent(rule({ keywords: ['  '] }), ev())).toBe(true);
++    expect(matchesContent(rule({ keywords: ['', ' ', 'zzz'] }), ev())).toBe(false);
++  });
++});
++
++describe('evaluate', () => {
++  it('returns null for a disabled rule', () => {
++    expect(evaluate(rule({ enabled: false }), hu, ev())).toBeNull();
++  });
++  it('returns null when content does not match', () => {
++    expect(evaluate(rule({ categories: ['disaster'] }), hu, ev())).toBeNull();
++  });
++  it('HU user, threshold 0.3, global 0.5 event fires', () => {
++    const r = evaluate(rule({ threshold: 0.3 }), hu, ev({ severity: 0.5 }));
++    expect(r?.fires).toBe(true);
++  });
++});
+diff --git a/server/test/poll.test.ts b/server/test/poll.test.ts
+new file mode 100644
+index 0000000..afeb786
+--- /dev/null
++++ b/server/test/poll.test.ts
+@@ -0,0 +1,207 @@
++import { readFileSync } from 'node:fs';
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import { z } from 'zod';
++import { pollSource } from '../src/pipeline/poll';
++import { runTick, startScheduler } from '../src/pipeline/scheduler';
++import { ingest } from '../src/pipeline/ingest';
++import type { ChannelAdapter } from '../src/channels';
++import { addChannel, addRule, addUser, makeDb } from './helpers';
++
++const gdacsXml = readFileSync(new URL('./fixtures/gdacs.xml', import.meta.url), 'utf8');
++const t0 = new Date('2026-10-19T12:00:00Z');
++const now = () => t0;
++type Db = ReturnType<typeof makeDb>;
++
++function addSource(db: Db, o: { type?: string; name?: string; config?: unknown; enabled?: boolean; interval?: number; lastPolledAt?: string | null } = {}): number {
++  return Number(db.prepare(`INSERT INTO sources (type, name, config, enabled, poll_interval_s, last_polled_at) VALUES (?, ?, ?, ?, ?, ?)`)
++    .run(o.type ?? 'gdacs', o.name ?? 'GDACS', JSON.stringify(o.config ?? {}), o.enabled === false ? 0 : 1, o.interval ?? 300, o.lastPolledAt ?? null).lastInsertRowid);
++}
++const source = (db: Db, id: number) => db.prepare(`SELECT * FROM sources WHERE id = ?`).get(id) as any;
++const eventCount = (db: Db) => (db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as any).n as number;
++
++/** Stub fetch: answers per URL (default: every URL gets the same reply). */
++function stubFetch(reply: (url: string) => Response | Promise<Response>) {
++  const calls: { url: string; init?: RequestInit }[] = [];
++  const fetchImpl = (async (url: any, init?: RequestInit) => { calls.push({ url: String(url), init }); return reply(String(url)); }) as typeof fetch;
++  return { fetchImpl, calls };
++}
++const RSS_URL = 'https://example.com/feed.xml';
++const rssConfig = { feedId: 'ex', url: RSS_URL, country: 'HU', breakingKeywords: [] };
++
++describe('pollSource', () => {
++  it('polls GDACS: inserts 225 events, clears last_error, sets last_polled_at, sends UA + timeout signal', async () => {
++    const db = makeDb();
++    const id = addSource(db);
++    db.prepare(`UPDATE sources SET last_error = 'old' WHERE id = ?`).run(id);
++    const f = stubFetch(() => new Response(gdacsXml, { status: 200 }));
++    expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 225 });
++    expect(eventCount(db)).toBe(225);
++    expect(source(db, id)).toMatchObject({ last_error: null, last_polled_at: t0.toISOString() });
++    expect(f.calls[0].url).toBe('https://www.gdacs.org/xml/rss.xml');
++    expect((f.calls[0].init?.headers as Record<string, string>)['User-Agent']).toBe('world-alerts/0.1');
++    expect(f.calls[0].init?.signal).toBeInstanceOf(AbortSignal);
++    // second poll of the same body: deduped, still ok
++    expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 0 });
++  });
++
++  it('HTTP 500 → ok:false, last_error mentions 500 (not the body), 0 events', async () => {
++    const db = makeDb();
++    const id = addSource(db);
++    const f = stubFetch(() => new Response('<html>SECRET BODY</html>', { status: 500 }));
++    const r = await pollSource(db, id, { fetchImpl: f.fetchImpl, now });
++    expect(r).toMatchObject({ ok: false, inserted: 0 });
++    expect(r.error).toContain('500');
++    const row = source(db, id);
++    expect(row.last_error).toContain('500');
++    expect(row.last_error).not.toContain('SECRET BODY');
++    expect(row.last_polled_at).toBe(t0.toISOString());
++    expect(eventCount(db)).toBe(0);
++  });
++
++  it("'<html>oops' with 200 → ok:false, last_error set, 0 events", async () => {
++    const db = makeDb();
++    const id = addSource(db);
++    const r = await pollSource(db, id, { fetchImpl: stubFetch(() => new Response('<html>oops', { status: 200 })).fetchImpl, now });
++    expect(r).toMatchObject({ ok: false, inserted: 0 });
++    expect(source(db, id).last_error).toBeTruthy();
++    expect(eventCount(db)).toBe(0);
++  });
++
++  it('truncated GDACS XML → ok:false, no partial events', async () => {
++    const db = makeDb();
++    const id = addSource(db);
++    const body = gdacsXml.slice(0, Math.floor(gdacsXml.length / 2));
++    const r = await pollSource(db, id, { fetchImpl: stubFetch(() => new Response(body)).fetchImpl, now });
++    expect(r).toMatchObject({ ok: false, inserted: 0 });
++    expect(source(db, id).last_error).toBeTruthy();
++    expect(eventCount(db)).toBe(0);
++  });
++
++  it('fetch throws (network error) → ok:false with the message; long messages capped at 500 chars', async () => {
++    const db = makeDb();
++    const id = addSource(db);
++    const r = await pollSource(db, id, { fetchImpl: (async () => { throw new TypeError('fetch failed'); }) as typeof fetch, now });
++    expect(r).toEqual({ ok: false, inserted: 0, error: 'fetch failed' });
++    expect(source(db, id).last_error).toBe('fetch failed');
++
++    await pollSource(db, id, { fetchImpl: (async () => { throw new Error('x'.repeat(2000)); }) as typeof fetch, now });
++    expect(source(db, id).last_error).toHaveLength(500);
++  });
++
++  it('unknown source id → source not found, no DB write', async () => {
++    const db = makeDb();
++    const f = stubFetch(() => new Response(gdacsXml));
++    expect(await pollSource(db, 999, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: false, inserted: 0, error: 'source not found' });
++    expect(f.calls).toHaveLength(0);
++  });
++
++  it('unknown adapter type / invalid config → ok:false, last_error written, no fetch', async () => {
++    const db = makeDb();
++    const f = stubFetch(() => new Response(gdacsXml));
++    const bad = addSource(db, { type: 'twitter' });
++    expect(await pollSource(db, bad, { fetchImpl: f.fetchImpl, now })).toMatchObject({ ok: false, inserted: 0 });
++    expect(source(db, bad)).toMatchObject({ last_polled_at: t0.toISOString() });
++    expect(source(db, bad).last_error).toContain('twitter');
++
++    const badCfg = addSource(db, { type: 'rss', config: { feedId: '', url: 'ftp://x' } });
++    expect(await pollSource(db, badCfg, { fetchImpl: f.fetchImpl, now })).toMatchObject({ ok: false, inserted: 0 });
++    expect(source(db, badCfg).last_error).toMatch(/invalid config/);
++
++    const badJson = addSource(db);
++    db.prepare(`UPDATE sources SET config = '{not json' WHERE id = ?`).run(badJson);
++    expect(await pollSource(db, badJson, { fetchImpl: f.fetchImpl, now })).toMatchObject({ ok: false, inserted: 0 });
++    expect(source(db, badJson).last_error).toMatch(/invalid config/);
++    expect(f.calls).toHaveLength(0);
++  });
++});
++
++function fakeRegistry() {
++  const sent: string[] = [];
++  const adapter: ChannelAdapter<any> = {
++    type: 'email', configSchema: z.object({ to: z.string() }).loose(), maskConfig: (c) => c,
++    send: async (_c, m) => { sent.push(m.title); },
++  };
++  return { sent, registry: { email: adapter } as Record<string, ChannelAdapter<any>> };
++}
++
++describe('runTick', () => {
++  afterEach(() => { vi.useRealTimers(); });
++
++  it('a failing source does not stop the next one; failure is logged', async () => {
++    const db = makeDb();
++    const broken = addSource(db, { type: 'rss', name: 'Broken', config: rssConfig });
++    const good = addSource(db);
++    const f = stubFetch((url) => (url === RSS_URL ? new Response('down', { status: 500 }) : new Response(gdacsXml)));
++    const log = vi.fn();
++    const r = await runTick(db, { fetchImpl: f.fetchImpl, registry: fakeRegistry().registry, now, log });
++    expect(r.polled).toBe(2);
++    expect(source(db, broken).last_error).toContain('500');
++    expect(source(db, good).last_error).toBeNull();
++    expect(eventCount(db)).toBe(225);
++    expect(log).toHaveBeenCalledTimes(1);
++    expect(log.mock.calls[0][0]).toContain('Broken');
++  });
++
++  it('polls only enabled sources that are due', async () => {
++    const db = makeDb();
++    const disabled = addSource(db, { enabled: false });
++    const fresh = addSource(db, { interval: 300, lastPolledAt: new Date(t0.getTime() - 299_000).toISOString() });
++    const due = addSource(db, { interval: 300, lastPolledAt: new Date(t0.getTime() - 300_000).toISOString() });
++    const f = stubFetch(() => new Response(gdacsXml));
++    const r = await runTick(db, { fetchImpl: f.fetchImpl, registry: fakeRegistry().registry, now, log: () => {} });
++    expect(r.polled).toBe(1);
++    expect(f.calls).toHaveLength(1);
++    expect(source(db, disabled).last_polled_at).toBeNull();
++    expect(source(db, fresh).last_polled_at).not.toBe(t0.toISOString());
++    expect(source(db, due).last_polled_at).toBe(t0.toISOString());
++  });
++
++  it('dispatches pending deliveries after polling', async () => {
++    const db = makeDb();
++    const user = addUser(db);
++    addRule(db, user, { channelIds: [addChannel(db, user)], threshold: 0 });
++    ingest(db, [{ source: 's', externalId: 'e1', category: 'news', title: 'Hello', summary: null, url: null, scope: 'country', country: 'HU', severity: 0.5, occurredAt: t0.toISOString(), raw: {} }], t0);
++    const reg = fakeRegistry();
++    const r = await runTick(db, { fetchImpl: stubFetch(() => new Response(gdacsXml)).fetchImpl, registry: reg.registry, now, log: () => {} });
++    expect(r.dispatch).toEqual({ sent: 1, failed: 0, retried: 0 });
++    expect(reg.sent).toEqual(['Hello']);
++  });
++
++  it('a dispatch fault is logged and runTick still resolves', async () => {
++    const db = makeDb();
++    db.exec(`DROP TABLE deliveries`);
++    const log = vi.fn();
++    const r = await runTick(db, { fetchImpl: stubFetch(() => new Response(gdacsXml)).fetchImpl, registry: fakeRegistry().registry, now, log });
++    expect(r.dispatch).toBeUndefined();
++    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^dispatch error: /));
++  });
++});
++
++describe('startScheduler', () => {
++  afterEach(() => { vi.useRealTimers(); });
++
++  it('ticks immediately and every 10s, skipping a tick while the previous one still runs; stop() clears it', async () => {
++    vi.useFakeTimers();
++    const db = makeDb();
++    addSource(db);
++    let release!: () => void;
++    const gate = new Promise<void>((r) => { release = r; });
++    const f = stubFetch(async () => { await gate; return new Response(gdacsXml); });
++    // a clock that moves with the fake timers, so the source becomes due again after its interval
++    const clock = () => new Date(t0.getTime() + Date.now());
++    vi.setSystemTime(0);
++    const s = startScheduler(db, { fetchImpl: f.fetchImpl, registry: fakeRegistry().registry, now: clock, log: () => {} });
++    await vi.advanceTimersByTimeAsync(0);
++    expect(f.calls).toHaveLength(1); // immediate tick, stuck in fetch
++    await vi.advanceTimersByTimeAsync(10_000);
++    expect(f.calls).toHaveLength(1); // second tick skipped by the guard (source is still due: last_polled_at not yet written)
++    release();
++    await vi.advanceTimersByTimeAsync(0);
++    expect(eventCount(db)).toBe(225);
++    await vi.advanceTimersByTimeAsync(300_000);
++    expect(f.calls).toHaveLength(2); // due again after poll_interval_s, guard released
++    s.stop();
++    await vi.advanceTimersByTimeAsync(600_000);
++    expect(f.calls).toHaveLength(2);
++  });
++});
+diff --git a/server/test/scoring.test.ts b/server/test/scoring.test.ts
+new file mode 100644
+index 0000000..3c10ed9
+--- /dev/null
++++ b/server/test/scoring.test.ts
+@@ -0,0 +1,49 @@
++import { describe, it, expect } from 'vitest';
++import { score, proximity } from '../src/scoring';
++import { WEIGHTS, DEFAULT_THRESHOLD } from '../src/scoring/weights';
++import type { NewEvent, ProximityReason } from '../src/types';
++
++type E = Pick<NewEvent, 'scope' | 'country' | 'severity'>;
++const rows: [string, E, number, ProximityReason, boolean, boolean][] = [
++  ['HU news', { scope: 'country', country: 'HU', severity: 0.5 }, 0.5, 'home', false, true],
++  ['NP news', { scope: 'country', country: 'NP', severity: 0.5 }, 0.1, 'elsewhere', false, false],
++  ['NP breaking', { scope: 'country', country: 'NP', severity: 0.8 }, 0.16, 'elsewhere', false, false],
++  ['global news', { scope: 'global', country: null, severity: 0.5 }, 0.4, 'global', false, false],
++  ['global breaking', { scope: 'global', country: null, severity: 0.8 }, 0.64, 'global', false, true],
++  ['NP red quake', { scope: 'country', country: 'NP', severity: 1.0 }, 1.0, 'elsewhere', true, true],
++  ['RO orange flood', { scope: 'country', country: 'RO', severity: 0.7 }, 0.525, 'subregion', false, true],
++  ['ES orange flood', { scope: 'country', country: 'ES', severity: 0.7 }, 0.28, 'continent', false, false],
++  ['unknown quake', { scope: 'unknown', country: null, severity: 0.7 }, 0.14, 'unknown', false, false],
++  ['BTC -3%', { scope: 'global', country: null, severity: 0.5 }, 0.4, 'global', false, false],
++  ['BTC -4%', { scope: 'global', country: null, severity: 4 / 6 }, 0.5333, 'global', false, true],
++  ['BTC -6%', { scope: 'global', country: null, severity: 1.0 }, 1.0, 'global', true, true],
++];
++
++describe('score (design §8)', () => {
++  it.each(rows)('%s', (_n, ev, importance, reason, override, fires) => {
++    const s = score(ev, 'HU', 0.5);
++    expect(s.importance).toBeCloseTo(importance, 3);
++    expect(s.proximityReason).toBe(reason);
++    expect(s.override).toBe(override);
++    expect(s.fires).toBe(fires);
++    expect(s.threshold).toBe(0.5);
++  });
++
++  it('XK event with home HU is elsewhere', () => {
++    expect(proximity({ scope: 'country', country: 'XK' }, 'HU')).toEqual({ weight: WEIGHTS.elsewhere, reason: 'elsewhere' });
++  });
++  it('XK event with home XK is home', () => {
++    expect(proximity({ scope: 'country', country: 'XK' }, 'XK')).toEqual({ weight: WEIGHTS.home, reason: 'home' });
++  });
++  it('home missing from table makes others elsewhere', () => {
++    expect(proximity({ scope: 'country', country: 'HU' }, 'XK').reason).toBe('elsewhere');
++  });
++  it('empty sub-region is not "same subregion" (AQ vs AQ is home, AQ vs HU elsewhere)', () => {
++    expect(proximity({ scope: 'country', country: 'AQ' }, 'HU').reason).toBe('elsewhere');
++    expect(proximity({ scope: 'country', country: 'HU' }, 'AQ').reason).toBe('elsewhere');
++  });
++  it('fires uses epsilon at the threshold', () => {
++    expect(score({ scope: 'country', country: 'HU', severity: 0.5 }, 'HU', 0.5 + 1e-10).fires).toBe(true);
++  });
++  it('default threshold', () => expect(DEFAULT_THRESHOLD).toBe(0.5));
++});
+diff --git a/server/test/sources.test.ts b/server/test/sources.test.ts
+new file mode 100644
+index 0000000..fbd1d3e
+--- /dev/null
++++ b/server/test/sources.test.ts
+@@ -0,0 +1,198 @@
++import { describe, it, expect } from 'vitest';
++import { readFileSync } from 'node:fs';
++import { sourceAdapters } from '../src/sources';
++import { manualEvent, ManualEventInput } from '../src/sources/manual';
++
++const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
++const now = new Date('2026-10-19T18:00:00Z');
++const { gdacs, rss, coingecko } = sourceAdapters;
++const rssConfig = (over: object = {}) =>
++  rss.configSchema.parse({ feedId: 'telex', url: 'https://telex.hu/rss', country: 'HU', breakingKeywords: [], ...over });
++
++describe('gdacs', () => {
++  const events = gdacs.normalize(fixture('gdacs.xml'), gdacs.configSchema.parse({}), now);
++
++  it('returns 225 disaster events', () => {
++    expect(events).toHaveLength(225);
++    expect(events.every((e) => e.category === 'disaster' && e.source === 'gdacs')).toBe(true);
++  });
++
++  it('maps the first item', () => {
++    expect(events[0]).toMatchObject({ externalId: '1572503:Green', country: 'VU', scope: 'country', severity: 0.3 });
++    expect(events[0]!.title).toContain('Vanuatu');
++    expect(events[0]!.occurredAt).toBe('2026-10-19T08:09:51.000Z');
++  });
++
++  it('maps alert levels to severity', () => {
++    expect(events.filter((e) => e.severity === 1.0)).toHaveLength(1);
++    expect(events.filter((e) => e.severity === 0.7)).toHaveLength(5);
++    expect(events.filter((e) => e.severity === 0.3)).toHaveLength(219);
++    expect(events.find((e) => e.severity === 1.0)!.externalId).toMatch(/:Red$/);
++  });
++
++  it('empty iso3 → scope unknown, country null (exactly 3)', () => {
++    const unknown = events.filter((e) => e.scope === 'unknown');
++    expect(unknown).toHaveLength(3);
++    expect(unknown.every((e) => e.country === null)).toBe(true);
++    expect(events.filter((e) => e.scope === 'country').every((e) => /^[A-Z]{2}$/.test(e.country!))).toBe(true);
++  });
++
++  it('url', () => expect(gdacs.url({})).toBe('https://www.gdacs.org/xml/rss.xml'));
++
++  const gdacsItem = (inner: string) =>
++    `<rss><channel><item><title>T</title><link>https://www.gdacs.org/x</link><gdacs:eventid>1</gdacs:eventid>${inner}<gdacs:iso3>HUN</gdacs:iso3></item></channel></rss>`;
++
++  it.each(['constructor', 'toString', 'Purple'])('unknown alertlevel %s throws', (level) => {
++    expect(() => gdacs.normalize(gdacsItem(`<gdacs:alertlevel>${level}</gdacs:alertlevel>`), {}, now)).toThrow(/alertlevel/);
++  });
++
++  it('missing alertlevel throws', () => {
++    expect(() => gdacs.normalize(gdacsItem(''), {}, now)).toThrow(/alertlevel/);
++  });
++
++  it('non-http item link → url null', () => {
++    const body = gdacsItem('<gdacs:alertlevel>Red</gdacs:alertlevel>').replace('https://www.gdacs.org/x', 'javascript:alert(1)');
++    expect(gdacs.normalize(body, {}, now)[0]).toMatchObject({ url: null, severity: 1.0, country: 'HU' });
++  });
++});
++
++describe('rss', () => {
++  it('telex (HU): 50 country events at base severity, link as externalId', () => {
++    const events = rss.normalize(fixture('telex.xml'), rssConfig(), now);
++    expect(events).toHaveLength(50);
++    for (const e of events) {
++      expect(e).toMatchObject({ source: 'rss:telex', category: 'news', scope: 'country', country: 'HU', severity: 0.5 });
++      expect(e.externalId).toMatch(/^https:\/\/telex\.hu\//);
++      expect(e.externalId).toBe(e.url);
++      expect(e.summary ?? '').not.toMatch(/<[^>]+>/);
++    }
++    expect(events[0]!.occurredAt).toBe('2026-10-19T17:04:41.000Z');
++  });
++
++  it('breaking keyword in title (case-insensitive, accented) → 0.8', () => {
++    const events = rss.normalize(fixture('telex.xml'), rssConfig({ breakingKeywords: ['ZAVARGÁS'] }), now);
++    const hit = events.filter((e) => e.severity === 0.8);
++    expect(hit.length).toBeGreaterThan(0);
++    expect(hit.every((e) => e.title.toLocaleLowerCase('hu').includes('zavargás'))).toBe(true);
++    expect(events.filter((e) => e.severity === 0.5)).toHaveLength(50 - hit.length);
++  });
++
++  it('bbcworld (country null) → global, guid object handled', () => {
++    const events = rss.normalize(fixture('bbcworld.xml'), rssConfig({ feedId: 'bbc', country: null }), now);
++    expect(events).toHaveLength(26);
++    for (const e of events) {
++      expect(e).toMatchObject({ source: 'rss:bbc', scope: 'global', country: null });
++      expect(typeof e.externalId).toBe('string');
++      expect(e.externalId.length).toBeGreaterThan(0);
++    }
++  });
++
++  it('hvg (HU): 60 events', () => {
++    expect(rss.normalize(fixture('hvg.xml'), rssConfig({ feedId: 'hvg' }), now)).toHaveLength(60);
++  });
++
++  it('single item, HTML + entities stripped, empty summary → null, bad pubDate → now', () => {
++    const body = `<?xml version="1.0"?><rss><channel><item><title>A &amp; B</title><link>https://x.test/1</link>
++      <description>&lt;p&gt;Hello &amp;amp; &lt;b&gt;world&lt;/b&gt; &amp;#39;q&amp;#39; &amp;#337;&lt;/p&gt;</description><pubDate>nope</pubDate></item></channel></rss>`;
++    const [e, ...rest] = rss.normalize(body, rssConfig(), now);
++    expect(rest).toHaveLength(0);
++    expect(e).toMatchObject({ title: 'A & B', summary: "Hello & world 'q' ő", occurredAt: now.toISOString() });
++    const empty = `<rss><channel><item><title>T</title><link>https://x.test/2</link><description>&lt;br/&gt;</description></item></channel></rss>`;
++    expect(rss.normalize(empty, rssConfig(), now)[0]!.summary).toBeNull();
++  });
++
++  it('non-http(s) item link → url null (still usable as id)', () => {
++    const body = `<rss><channel><item><title>T</title><link>javascript:alert(1)</link></item>
++      <item><title>U</title><link>file:///etc/passwd</link></item></channel></rss>`;
++    const events = rss.normalize(body, rssConfig(), now);
++    expect(events.map((e) => e.url)).toEqual([null, null]);
++    expect(events.map((e) => e.externalId)).toEqual(['javascript:alert(1)', 'file:///etc/passwd']);
++  });
++
++  it('item with no guid, link or title is skipped; title is the last-resort id', () => {
++    const body = `<rss><channel><item><description>no id</description></item>
++      <item><guid> </guid><link></link><title>  </title></item>
++      <item><title>Only a title</title></item></channel></rss>`;
++    const events = rss.normalize(body, rssConfig(), now);
++    expect(events).toHaveLength(1);
++    expect(events[0]).toMatchObject({ externalId: 'Only a title', url: null });
++  });
++
++  it('config: unknown country and non-http(s) feed url rejected', () => {
++    expect(() => rssConfig({ country: 'XX' })).toThrow();
++    expect(() => rssConfig({ url: 'file:///etc/passwd' })).toThrow();
++    expect(() => rssConfig({ url: 'javascript:alert(1)' })).toThrow();
++    expect(rssConfig({ url: 'http://example.com/rss' }).url).toBe('http://example.com/rss');
++    expect(rss.url(rssConfig())).toBe('https://telex.hu/rss');
++  });
++});
++
++describe('coingecko', () => {
++  const cfg = coingecko.configSchema.parse({});
++
++  it('defaults', () => expect(cfg).toEqual({ coins: ['bitcoin', 'ethereum'], minChangePct: 3 }));
++
++  it('url lists coins with 24h change', () => {
++    expect(coingecko.url(cfg)).toBe(
++      'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true',
++    );
++  });
++
++  it('fixture (+1.04%, +1.26%) → 0 events', () => {
++    expect(coingecko.normalize(fixture('coingecko.json'), cfg, now)).toHaveLength(0);
++  });
++
++  it('BTC -6 → severity 1, ETH +4 → 4/6', () => {
++    const body = JSON.stringify({
++      bitcoin: { usd: 81941, usd_24h_change: -6 },
++      ethereum: { usd: 2400.65, usd_24h_change: 4 },
++    });
++    const events = coingecko.normalize(body, cfg, now);
++    expect(events).toHaveLength(2);
++    expect(events[0]).toMatchObject({
++      source: 'coingecko', category: 'market', severity: 1.0, scope: 'global', country: null, externalId: 'bitcoin:2026-10-19',
++    });
++    expect(events[0]!.title).toContain('-6.0%');
++    expect(events[1]!.severity).toBeCloseTo(4 / 6, 9);
++    expect(events[1]!.title).toContain('+4.0%');
++    expect(events[1]!.externalId).toBe('ethereum:2026-10-19');
++  });
++});
++
++describe('garbage body', () => {
++  it.each([
++    ['gdacs', () => gdacs.normalize('<html>oops', {}, now)],
++    ['rss', () => rss.normalize('<html>oops', rssConfig(), now)],
++    ['coingecko', () => coingecko.normalize('<html>oops', coingecko.configSchema.parse({}), now)],
++  ])('%s throws', (_name, fn) => expect(fn).toThrow());
++});
++
++describe('manualEvent', () => {
++  it('country event', () => {
++    const e = manualEvent(ManualEventInput.parse({ category: 'disaster', title: 'Flood', country: 'HU', severity: 0.95 }), now);
++    expect(e).toMatchObject({
++      source: 'manual', category: 'disaster', title: 'Flood', summary: null, url: null,
++      scope: 'country', country: 'HU', severity: 0.95, occurredAt: now.toISOString(),
++    });
++    expect(e.externalId).toMatch(/^manual:[0-9a-f-]{36}$/);
++  });
++
++  it('accepts http(s) url', () => {
++    expect(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5, url: 'https://a.test/x' }).url).toBe('https://a.test/x');
++    expect(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5, url: 'http://a.test/x' }).url).toBe('http://a.test/x');
++  });
++
++  it('no country → global', () => {
++    const e = manualEvent(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5 }), now);
++    expect(e).toMatchObject({ scope: 'global', country: null });
++  });
++
++  it.each([
++    [{ category: 'sports', title: 'X', severity: 0.5 }],
++    [{ category: 'news', title: 'X', severity: 1.5 }],
++    [{ category: 'news', title: 'X', severity: 0.5, country: 'XX' }],
++    [{ category: 'news', title: '', severity: 0.5 }],
++    [{ category: 'news', title: 'X', severity: 0.5, url: 'javascript:alert(1)' }],
++    [{ category: 'news', title: 'X', severity: 0.5, url: 'file:///etc/passwd' }],
++  ])('rejects %j', (input) => expect(ManualEventInput.safeParse(input).success).toBe(false));
++});
+diff --git a/server/tsconfig.json b/server/tsconfig.json
+new file mode 100644
+index 0000000..001f114
+--- /dev/null
++++ b/server/tsconfig.json
+@@ -0,0 +1,14 @@
++{
++  "compilerOptions": {
++    "target": "ES2023",
++    "module": "ESNext",
++    "moduleResolution": "Bundler",
++    "noEmit": true,
++    "strict": true,
++    "skipLibCheck": true,
++    "esModuleInterop": true,
++    "resolveJsonModule": true,
++    "types": ["node"]
++  },
++  "include": ["src", "test", "vitest.config.ts"]
++}
+diff --git a/server/vitest.config.ts b/server/vitest.config.ts
+new file mode 100644
+index 0000000..e1e28f8
+--- /dev/null
++++ b/server/vitest.config.ts
+@@ -0,0 +1,5 @@
++import { defineConfig } from 'vitest/config';
++
++export default defineConfig({
++  test: { include: ['test/**/*.test.ts'] },
++});
