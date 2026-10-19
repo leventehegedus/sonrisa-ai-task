@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'react-redux'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setUser } from '@/session'
 import { makeStore } from '@/store'
 import AppShell from './AppShell'
@@ -19,18 +19,12 @@ function mockFetch() {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (req: Request) => {
-      const body = req.url.endsWith('/api/users') ? users : meById[req.headers.get('X-User-Id') ?? '']
+      const body = req.url.endsWith('/api/users') ? users : req.url.endsWith('/api/me') ? meById[req.headers.get('X-User-Id') ?? ''] : []
       return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
     }),
   )
 }
 
-// jsdom lacks these; Radix Select calls them when opening
-beforeAll(() => {
-  Element.prototype.hasPointerCapture = () => false
-  Element.prototype.releasePointerCapture = () => {}
-  Element.prototype.scrollIntoView = () => {}
-})
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -85,6 +79,19 @@ describe('AppShell', () => {
     fireEvent.click((await screen.findAllByRole('option'))[1])
     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
     expect((await screen.findByRole('tab', { name: 'My alerts' })).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('tabpanel').textContent).toBe('Coming in Task 12')
+    expect(await screen.findByText('No rules yet.')).toBeTruthy()
+
+    // switching back to the admin must not resurrect the Admin tab
+    fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+    fireEvent.click((await screen.findAllByRole('option'))[0])
+    await screen.findByRole('tab', { name: 'Admin' })
+    expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('shows the placeholder in the user switcher until users load, then the selected name', async () => {
+    renderShell(2)
+    expect(screen.getByRole('combobox').textContent).toBe('Select user')
+    await waitFor(() => expect(screen.getByRole('combobox').textContent).toBe('Bela'))
   })
 })

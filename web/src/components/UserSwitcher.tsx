@@ -10,7 +10,7 @@ export default function UserSwitcher() {
   const { data: users = [] } = useGetUsersQuery()
 
   return (
-    <Select value={String(userId)} onValueChange={(v) => dispatch(switchUser(Number(v)))}>
+    <Select value={users.length ? String(userId) : ''} onValueChange={(v) => dispatch(switchUser(Number(v)))}>
       <SelectTrigger className="w-40" aria-label="Switch user">
         <SelectValue placeholder="Select user" />
       </SelectTrigger>

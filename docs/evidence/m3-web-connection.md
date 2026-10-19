@@ -35,3 +35,25 @@ $ curl -s localhost:5174/api/me -H 'X-User-Id: 2'
 ```
 
 Shutdown: killed only PIDs 75865 (:3001) and 75863 (:5174). `lsof -iTCP:3001 -iTCP:5174 -sTCP:LISTEN` printed nothing. The pre-existing :3000 listener (PID 74488) and `data/` were not touched.
+
+# M3 Task 12: user pages (real run)
+
+Isolated API on :3001 with a temp DB, Vite on :5174 proxying to it; all calls go through the Vite proxy as user 2 (Bence). The user's :3000/:5173 and `data/alerts.db` were not touched. The repo-root `data/outbox` already held 18 files; only the one this run created was removed.
+
+```
+$ curl -X POST localhost:5174/api/rules -d '{"name":"Low bar","categories":["disaster"],"keywords":["quake"],"threshold":0.3,"channelIds":[]}'
+{"id":4,"userId":2,"name":"Low bar","categories":["disaster"],"keywords":["quake"],"threshold":0.3,"channelIds":[],"enabled":true}
+$ curl -X POST localhost:5174/api/channels -d '{"type":"email","config":{}}'
+{"id":4,"type":"email","config":{"to":"bence@example.com"},"enabled":true}
+$ curl -X POST localhost:5174/api/channels/4/test
+{"ok":true}
+$ ls data/outbox  (diff vs before)
+> 1792446921467-f2746205-bence@example.com.json
+  {"from":{...},"to":[{"address":"bence@example.com"}],"subject":"[World Alerts] World Alerts test message",...}
+$ curl -X POST localhost:5174/api/channels -d '{"type":"slack","config":{"webhookUrl":"https://hooks.slack.com/services/T/B/secret1234"}}'
+{"id":5,"type":"slack","config":{"webhookUrl":"https://hooks.slack.com/…/1234"},"enabled":true}
+$ curl -X PATCH localhost:5174/api/channels/5 -d '{"config":{"webhookUrl":"https://hooks.slack.com/…/1234"}}'   # the masked value, which the UI never sends
+{"error":"invalid request","issues":[{"code":"custom","path":["webhookUrl"],"message":"must be a Slack webhook URL"},{"code":"custom","path":["webhookUrl"],"message":"must not be the masked form"}]}
+```
+
+Shutdown: killed the listeners on :3001 and :5174; `lsof` printed nothing. The outbox file was deleted. The browser UI itself was not driven here; the page behaviour is covered by the jsdom tests in `web/src/pages/pages.test.tsx`.

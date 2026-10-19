@@ -1,22 +1,27 @@
 import { useState } from 'react'
 import { useGetMeQuery } from '@/api'
 import UserSwitcher from '@/components/UserSwitcher'
+import Channels from '@/pages/Channels'
+import History from '@/pages/History'
+import Rules from '@/pages/Rules'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Toaster } from '@/components/ui/sonner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const tabs = [
-  { value: 'alerts', label: 'My alerts', todo: 'Task 12' },
-  { value: 'channels', label: 'Channels', todo: 'Task 12' },
-  { value: 'history', label: 'History', todo: 'Task 12' },
+  { value: 'alerts', label: 'My alerts', content: <Rules /> },
+  { value: 'channels', label: 'Channels', content: <Channels /> },
+  { value: 'history', label: 'History', content: <History /> },
 ]
-const adminTab = { value: 'admin', label: 'Admin', todo: 'Task 13' }
+const adminTab = { value: 'admin', label: 'Admin', content: <>Coming in Task 13</> }
 
 export default function AppShell() {
   const { data: me, error, refetch } = useGetMeQuery()
   const [tab, setTab] = useState('alerts')
   const visible = me?.isAdmin ? [...tabs, adminTab] : tabs
   const active = visible.some((t) => t.value === tab) ? tab : 'alerts' // Admin tab vanishes on switch to non-admin
+  if (active !== tab) setTab(active) // forget the vanished tab so switching back to an admin doesn't resurrect it
 
   let status = <span className="text-muted-foreground">Connecting…</span>
   if (me) {
@@ -56,10 +61,11 @@ export default function AppShell() {
         </TabsList>
         {visible.map((t) => (
           <TabsContent key={t.value} value={t.value}>
-            Coming in {t.todo}
+            {t.content}
           </TabsContent>
         ))}
       </Tabs>
+      <Toaster />
     </div>
   )
 }
