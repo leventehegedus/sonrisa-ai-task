@@ -1,7 +1,7 @@
 # World Alerts — Design
 
 **Date:** 2026-10-19
-**Status:** Draft, awaiting approval
+**Status:** Approved by the user, 2026-10-19 (prompt 009)
 **Source brief:** [`docs/task-brief.md`](../../task-brief.md)
 **Decision log:** [`docs/decisions.md`](../../decisions.md)
 
@@ -88,7 +88,7 @@ Rules match on category, keywords and importance. Region is **not** a filter her
 ### 6.5 Delivery (the outbox)
 
 `id`, `rule_id`, `event_id`, `channel_id`, `status` (`pending` | `sent` | `failed`), `attempts`, `last_error`, `score`, `score_breakdown` (JSON), `created_at`, `sent_at`.
-`UNIQUE(event_id, channel_id)` means a user never gets the same event twice on the same channel, even if two of their rules match it. **[agent's call]**
+`UNIQUE(event_id, channel_id)` means a user never gets the same event twice on the same channel, even if two of their rules match it. **[agent's call]** `channel_id` and `rule_id` use `ON DELETE SET NULL`, so delivery history survives deletes as an audit trail.
 
 ### 6.6 Source
 
@@ -121,7 +121,7 @@ Polling runs on an in-process `setInterval` per source (default 5 minutes). **[a
 
 ## 8. Importance score [user: region priority; really important far-away events must still pass by default]
 
-> **Revised after the builder check.** The first draft's weights let almost nothing except GDACS Red through: by default no news and no market event would ever alert. That broke the user's requirement. The values marked **[proposed, Q1]** are the fix and are waiting for the user's OK.
+> **Revised after the builder check.** The first draft's weights let almost nothing except GDACS Red through: by default no news and no market event would ever alert. That broke the user's requirement. The values marked **[proposed, Q1]** are the fix, and the **user approved them** in prompt 009.
 
 ```
 proximity = 1.0   scope=country and event.country == user.home_country
@@ -156,7 +156,7 @@ fires if  importance ≥ rule.threshold  (default 0.5)  AND category & keyword m
 
 `score_breakdown` stores `{severity, proximity, proximityReason, override, threshold}` for every delivery. The admin view shows it.
 
-**Region data:** a static JSON map of ISO2 → `{ iso3, subregion, continent }` from the UN M49 classification. **[builder]** Pick the source, but it has to be an authoritative dataset (UN M49 CSV or a well-known package such as `world-countries`). The table must not be typed out by the AI from memory: spot-check at least HU, NP, RO, AT and US against the source.
+**Region data:** ISO2 → `{ iso3, region, subregion }` from the **`lukes/ISO-3166-Countries-with-Regional-Codes` `all.csv`**, committed to the repo. "Continent" means the M49 *region* (Africa, Americas, Asia, Europe, Oceania). The dataset was verified against the UN M49 page: 248 countries, 0 mismatches ([evidence](../../evidence/m49-check/)). `world-countries` was **rejected** because it isn't M49 (R-009). A country code missing from the table (e.g. `XK`) gets `elsewhere` unless it equals the user's home country.
 
 **The weights and the critical override are tunable constants in one file, with unit tests for every row of the table above.**
 

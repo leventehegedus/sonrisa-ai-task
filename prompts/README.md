@@ -26,4 +26,5 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 005 | ["Let's start planning"](005-start-planning-go.md) | `e55c1b1` |
 | 006 | [Stack choice](006-stack-choice.md) | `e2e84d8` |
 | 007 | [Confirm guesses + region weighting](007-confirm-guesses-region-weighting.md) | `2fce833` |
-| 008 | [Far-away critical events + builder check](008-far-away-critical-events-and-builder-check.md) | _pending_ |
+| 008 | [Far-away critical events + builder check](008-far-away-critical-events-and-builder-check.md) | `89fec52` |
+| 009 | [Approve design, write plan + CLAUDE.md](009-approve-design-write-plan.md) | _pending_ |
