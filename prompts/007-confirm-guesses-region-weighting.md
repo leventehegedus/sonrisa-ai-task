@@ -27,4 +27,4 @@ sure, I did not mention them in the previous prompt.
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`2fce833` — docs: log prompt 007, record D-007 region-weighted importance
