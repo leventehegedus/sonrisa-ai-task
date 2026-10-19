@@ -171,15 +171,15 @@ describe('sources', () => {
       enabled: true, pollIntervalS: 300, lastPolledAt: null, lastError: null, baselineAt: null,
     });
   });
-  it('PATCH updates enabled and poll_interval_s', async () => {
-    const res = await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, { enabled: false, poll_interval_s: 600 });
+  it('PATCH updates enabled and pollIntervalS', async () => {
+    const res = await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, { enabled: false, pollIntervalS: 600 });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ id: TELEX, enabled: false, pollIntervalS: 600 });
     expect((await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, { enabled: true })).json()).toMatchObject({ enabled: true, pollIntervalS: 600 });
   });
   it.each([
-    ['interval below 60', { poll_interval_s: 5 }], ['interval above 86400', { poll_interval_s: 86401 }],
-    ['non-integer interval', { poll_interval_s: 60.5 }], ['empty body', {}], ['unknown key', { enabled: true, name: 'x' }],
+    ['interval below 60', { pollIntervalS: 5 }], ['interval above 86400', { pollIntervalS: 86401 }],
+    ['non-integer interval', { pollIntervalS: 60.5 }], ['empty body', {}], ['unknown key', { enabled: true, name: 'x' }],
   ])('PATCH %s → 400, unchanged', async (_name, body) => {
     expect((await req('PATCH', `/api/admin/sources/${TELEX}`, ANNA, body)).statusCode).toBe(400);
     expect(db.prepare(`SELECT enabled, poll_interval_s FROM sources WHERE id = ?`).get(TELEX)).toEqual({ enabled: 1, poll_interval_s: 300 });

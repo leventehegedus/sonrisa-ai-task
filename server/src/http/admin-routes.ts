@@ -13,8 +13,8 @@ const EventsQuery = z.object({ limit: z.coerce.number().int().min(1).max(500).de
 const DeliveriesQuery = z.object({ status: z.enum(['pending', 'sent', 'failed']).optional() });
 const SourcePatch = z.strictObject({
   enabled: z.boolean().optional(),
-  poll_interval_s: z.number().int().min(60).max(86400).optional(),
-}).refine((b) => b.enabled !== undefined || b.poll_interval_s !== undefined, 'at least one of enabled, poll_interval_s');
+  pollIntervalS: z.number().int().min(60).max(86400).optional(),
+}).refine((b) => b.enabled !== undefined || b.pollIntervalS !== undefined, 'at least one of enabled, pollIntervalS');
 const InjectBody = z.strictObject(ManualEventInput.shape);
 
 // Owner = the rule's user, or the channel's when the rule was deleted (both null only if both are gone).
@@ -74,7 +74,7 @@ export function adminRoutes(db: Database, deps: AppDeps) {
       const { id } = IdParams.parse(req.params);
       const b = SourcePatch.parse(req.body);
       const enabled = b.enabled === undefined ? null : b.enabled ? 1 : 0;
-      if (!q.updateSource.run(enabled, b.poll_interval_s ?? null, id).changes) return reply.code(404).send(notFound);
+      if (!q.updateSource.run(enabled, b.pollIntervalS ?? null, id).changes) return reply.code(404).send(notFound);
       return rowToSource(q.source.get(id));
     });
 

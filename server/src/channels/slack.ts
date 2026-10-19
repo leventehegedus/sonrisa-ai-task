@@ -3,7 +3,9 @@ import type { ChannelAdapter } from './index';
 
 export interface SlackOpts { dryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }
 const configSchema = z.object({
-  webhookUrl: z.url({ protocol: /^https$/ }).refine((u) => u.startsWith('https://hooks.slack.com/'), 'must be a Slack webhook URL'),
+  webhookUrl: z.url({ protocol: /^https$/ })
+    .refine((u) => u.startsWith('https://hooks.slack.com/services/'), 'must be a Slack webhook URL')
+    .refine((u) => !u.includes('…'), 'must not be the masked form'),
 });
 
 // Slack mrkdwn control chars: unescaped, feed text could inject <!channel> pings or disguised <url|label> links.

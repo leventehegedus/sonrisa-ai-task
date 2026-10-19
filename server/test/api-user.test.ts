@@ -151,6 +151,17 @@ describe('channels', () => {
     expect(patched.body).not.toContain('SECRET');
   });
 
+  it('PATCH with the masked config echoed from GET → 400, stored secret intact', async () => {
+    const created = await req('POST', '/api/channels', bence, { type: 'slack', config: { webhookUrl: SECRET_HOOK } });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id;
+    const got = await req('GET', `/api/channels/${id}`, bence);
+    expect(got.statusCode).toBe(200);
+    const patched = await req('PATCH', `/api/channels/${id}`, bence, { config: got.json().config });
+    expect(patched.statusCode).toBe(400);
+    expect(db.prepare(`SELECT config FROM channels WHERE id = ?`).get(id)).toEqual({ config: JSON.stringify({ webhookUrl: SECRET_HOOK }) });
+  });
+
   // Review Focus 5
   it.each([
     ['slack http:// webhook', { type: 'slack', config: { webhookUrl: 'http://hooks.slack.com/services/T0/B0/xxSECRETxx' } }],

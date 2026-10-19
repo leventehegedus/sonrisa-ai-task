@@ -107,6 +107,12 @@ describe('slack', () => {
     expect(s.safeParse({ webhookUrl: 'https://example.com/x' }).success).toBe(false);
     expect(s.safeParse({ webhookUrl: SLACK }).success).toBe(true);
   });
+  it('rejects the masked form and non-/services/ paths', () => {
+    const s = reg().slack.configSchema;
+    expect(s.safeParse({ webhookUrl: 'https://hooks.slack.com/…/1234' }).success).toBe(false);
+    expect(s.safeParse({ webhookUrl: 'https://hooks.slack.com/foo' }).success).toBe(false);
+    expect(s.safeParse({ webhookUrl: 'https://hooks.slack.com/services/T0/…/1234' }).success).toBe(false);
+  });
   it('masks to last 4 chars only', () => {
     const m = reg().slack.maskConfig({ webhookUrl: SLACK }) as { webhookUrl: string };
     expect(m.webhookUrl).toBe('https://hooks.slack.com/…/1234');

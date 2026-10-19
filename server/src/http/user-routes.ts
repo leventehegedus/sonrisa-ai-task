@@ -53,7 +53,7 @@ export function userRoutes(db: Database, deps: AppDeps) {
        FROM deliveries d JOIN events e ON e.id = d.event_id
        LEFT JOIN channels c ON c.id = d.channel_id LEFT JOIN rules r ON r.id = d.rule_id
        WHERE c.user_id = ? OR r.user_id = ?
-       ORDER BY d.created_at DESC, d.id DESC LIMIT 100`,
+       ORDER BY d.created_at DESC, d.id DESC LIMIT 100`, // shortcut: fixed LIMIT 100, add pagination when history grows
     ),
   };
 
