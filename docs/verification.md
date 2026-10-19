@@ -32,7 +32,6 @@ The e2e run is isolated: API on :3002 with a throwaway DB under `/tmp/world-aler
 
 ## Not verified
 
-- **Real Slack delivery.** No webhook was available. Slack was verified only in dry-run mode and in unit tests with mocked `fetch`. The sequence to try is in [how-to-test.md](how-to-test.md) section 4.
 - Delivery status `sent` in the browser: the e2e screenshots were taken right after injection, so deliveries show `pending` (the dispatcher runs about every 10 s). `sent` was verified by `dispatch.test.ts`, `chain.test.ts` and the curl run in [m2-api-smoke.md](evidence/m2-api-smoke.md).
 - Retry button click in a browser, and the failed-delivery path with a real failing channel.
 - Live feed content in the e2e run (deliberately not asserted); feed formats may change.
