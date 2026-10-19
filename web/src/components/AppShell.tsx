@@ -53,20 +53,25 @@ export default function AppShell() {
           <UserSwitcher />
         </div>
       </header>
-      <Tabs value={active} onValueChange={setTab}>
-        <TabsList>
+      {/* no tabs while `me` (re)loads: avoids a selected-less, blank panel */}
+      {me ? (
+        <Tabs value={active} onValueChange={setTab}>
+          <TabsList>
+            {visible.map((t) => (
+              <TabsTrigger key={t.value} value={t.value}>
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
           {visible.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>
-              {t.label}
-            </TabsTrigger>
+            <TabsContent key={t.value} value={t.value}>
+              {t.content}
+            </TabsContent>
           ))}
-        </TabsList>
-        {visible.map((t) => (
-          <TabsContent key={t.value} value={t.value}>
-            {t.content}
-          </TabsContent>
-        ))}
-      </Tabs>
+        </Tabs>
+      ) : (
+        <p className="text-muted-foreground">{error ? 'Could not load your session.' : 'Loading…'}</p>
+      )}
       <Toaster />
     </div>
   )

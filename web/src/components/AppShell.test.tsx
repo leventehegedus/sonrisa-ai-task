@@ -79,16 +79,17 @@ describe('AppShell', () => {
 
     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
     fireEvent.click((await screen.findAllByRole('option'))[1])
+    expect(await screen.findByText(/DE/)).toBeTruthy()
     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
-    expect((await screen.findByRole('tab', { name: 'My alerts' })).getAttribute('aria-selected')).toBe('true')
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true'))
     expect(await screen.findByText('No rules yet.')).toBeTruthy()
 
     // switching back to the admin must not resurrect the Admin tab
     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
     fireEvent.click((await screen.findAllByRole('option'))[0])
     await screen.findByRole('tab', { name: 'Admin' })
-    expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false')
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true'))
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false'))
   })
 
   it('keeps the Admin tab when switching from one admin to another while /me reloads', async () => {
@@ -102,6 +103,19 @@ describe('AppShell', () => {
     fireEvent.click((await screen.findAllByRole('option'))[2])
     expect(await screen.findByText(/AT/)).toBeTruthy()
     expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('shows an error instead of "Loading…" when /me fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } })))
+    const store = makeStore()
+    store.dispatch(setUser(1))
+    render(
+      <Provider store={store}>
+        <AppShell />
+      </Provider>,
+    )
+    expect(await screen.findByText('Could not load your session.')).toBeTruthy()
+    expect(screen.queryByText('Loading…')).toBeNull()
   })
 
   it('shows the placeholder in the user switcher until users load, then the selected name', async () => {
