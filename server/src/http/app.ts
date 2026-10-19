@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { ChannelAdapter } from '../channels';
 import { authenticate } from './auth';
 import { userRoutes } from './user-routes';
+import { adminRoutes } from './admin-routes';
 
 export interface AppDeps { registry: Record<string, ChannelAdapter<any>>; fetchImpl: typeof fetch; now: () => Date; log: (msg: string) => void }
 
@@ -27,8 +28,10 @@ export function buildApp(db: Database, deps: AppDeps): FastifyInstance {
   app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'not found' }));
 
   app.register(async (api) => {
-    api.addHook('preHandler', authenticate(db));
+    // onRequest runs before body parsing, so an unknown caller gets 401 even with a malformed body.
+    api.addHook('onRequest', authenticate(db));
     await api.register(userRoutes(db, deps));
+    await api.register(adminRoutes(db, deps), { prefix: '/admin' });
   }, { prefix: '/api' });
   return app;
 }

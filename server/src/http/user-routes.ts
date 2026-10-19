@@ -2,13 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import type { Database } from 'better-sqlite3';
 import { z } from 'zod';
 import { buildMessage, scrubSecrets } from '../channels';
-import { rowToChannel, rowToDeliveryWithEvent, rowToRule, type ChannelRow } from '../db/rows';
+import { DELIVERY_EVENT_COLUMNS, rowToChannel, rowToDeliveryWithEvent, rowToRule, type ChannelRow } from '../db/rows';
 import { score } from '../scoring';
 import type { EventRow, User } from '../types';
 import type { AppDeps } from './app';
 import { POSITIVE_INT } from './auth';
 
-const IdParams = z.object({ id: z.string().regex(POSITIVE_INT, 'must be a positive integer').transform(Number) });
+export const IdParams = z.object({ id: z.string().regex(POSITIVE_INT, 'must be a positive integer').transform(Number) });
 
 const ruleFields = {
   name: z.string().min(1).max(100),
@@ -31,7 +31,7 @@ const ChannelCreate = z.strictObject({ type: z.string(), config: z.unknown().opt
 const ChannelPatch = z.strictObject({ config: z.unknown().optional(), enabled: z.boolean().optional() });
 
 const badRequest = (path: string, message: string) => ({ error: 'invalid request', issues: [{ path: [path], message }] });
-const notFound = { error: 'not found' };
+export const notFound = { error: 'not found' };
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export function userRoutes(db: Database, deps: AppDeps) {
@@ -49,7 +49,7 @@ export function userRoutes(db: Database, deps: AppDeps) {
     updateChannel: db.prepare(`UPDATE channels SET config = ?, enabled = ? WHERE id = ?`),
     deleteChannel: db.prepare(`DELETE FROM channels WHERE id = ?`),
     deliveries: db.prepare(
-      `SELECT d.*, e.title AS e_title, e.category AS e_category, e.country AS e_country, e.scope AS e_scope, e.url AS e_url, e.occurred_at AS e_occurred_at
+      `SELECT d.*, ${DELIVERY_EVENT_COLUMNS}
        FROM deliveries d JOIN events e ON e.id = d.event_id
        LEFT JOIN channels c ON c.id = d.channel_id LEFT JOIN rules r ON r.id = d.rule_id
        WHERE c.user_id = ? OR r.user_id = ?

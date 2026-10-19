@@ -25,10 +25,16 @@ export const rowToChannel = (r: any): ChannelRow => ({
   id: r.id, userId: r.user_id, type: r.type, config: JSON.parse(r.config), enabled: !!r.enabled,
 });
 
-// A deliveries row joined with its event's columns aliased e_* (see GET /api/my/deliveries).
+// A deliveries row joined with its event's columns aliased e_* (select DELIVERY_EVENT_COLUMNS from `deliveries d JOIN events e`).
+export const DELIVERY_EVENT_COLUMNS = `e.title AS e_title, e.category AS e_category, e.country AS e_country, e.scope AS e_scope, e.url AS e_url, e.occurred_at AS e_occurred_at`;
 export const rowToDeliveryWithEvent = (r: any) => ({
   id: r.id as number, status: r.status as DeliveryStatus, attempts: r.attempts as number, lastError: r.last_error as string | null,
   createdAt: r.created_at as string, sentAt: r.sent_at as string | null, channelId: r.channel_id as number | null, ruleId: r.rule_id as number | null,
   breakdown: JSON.parse(r.score_breakdown) as ScoreBreakdown,
   event: { id: r.event_id as number, title: r.e_title as string, category: r.e_category as Category, country: r.e_country as string | null, scope: r.e_scope as Scope, url: r.e_url as string | null, occurredAt: r.e_occurred_at as string },
+});
+
+export const rowToSource = (r: any) => ({
+  id: r.id as number, type: r.type as string, name: r.name as string, config: JSON.parse(r.config) as unknown, enabled: !!r.enabled,
+  pollIntervalS: r.poll_interval_s as number, lastPolledAt: r.last_polled_at as string | null, lastError: r.last_error as string | null, baselineAt: r.baseline_at as string | null,
 });
