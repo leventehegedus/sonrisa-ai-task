@@ -40,6 +40,26 @@ A take-home submission ([`docs/task-brief.md`](docs/task-brief.md)): **World Ale
 - **ponytail (full):** the smallest complete change. No speculative abstractions, options or "for later" code. Never cut validation, error handling, security or tests. Known limits get `// shortcut: <limit>, <when to upgrade>`.
 - **caveman:** terse **chat** replies only. Docs, commits, code comments and prompt logs stay in full, clear prose.
 
+## Model policy for agents (user decision, D-024; applies from prompt 018 on)
+
+The user talks to the main session on **Opus**. To avoid rate limits, every subagent uses a cheaper model, and **the model is always set explicitly** (an omitted model inherits Opus).
+
+| Role | Model |
+|---|---|
+| Main session (controller: planning, rulings, talking to the user) | opus (the session model) |
+| Implementer: multi-file feature, tests, integration | `sonnet` |
+| Implementer: mechanical (1–2 files, complete spec, config, renames) | `haiku` |
+| Task reviewer | `sonnet` |
+| Scoped re-review of a small fix diff | `haiku` |
+| Whole-branch / milestone review | `sonnet`, with a focused list of named risks (no Opus) |
+| Read-only search / exploration | `haiku` (Explore agent) |
+
+To keep the call count low:
+- Batch small, same-shaped fixes into one dispatch.
+- Pass artifacts as files, not pasted text.
+- Use one review per task; a re-review only after a fix round.
+- Keep controller turns short: no reading whole files the subagent will read anyway.
+
 ## Stack and commands
 
 - Server: Node 24, TypeScript, Fastify 5, better-sqlite3 (plain SQL, no ORM), zod 4, fast-xml-parser, nodemailer, vitest.

@@ -18,4 +18,4 @@ how shall I start the backend and the database?
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`2c8a300` — docs: log prompt 017

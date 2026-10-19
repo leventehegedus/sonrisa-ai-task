@@ -35,4 +35,5 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 014 | [Finish Task 11 or wait; how to test](014-how-to-test-and-pause.md) | `c9e877d` |
 | 015 | [Break down Task 11 to rethink it](015-break-down-task-11.md) | `68400c6` |
 | 016 | [Split Task 11; do 11a, skip Redux](016-split-task-11-do-11a.md) | `aa0b23f` · `96d8e66` |
-| 017 | [How to start the backend and the database](017-how-to-start-backend-db.md) | _pending_ |
+| 017 | [How to start the backend and the database](017-how-to-start-backend-db.md) | `2c8a300` |
+| 018 | [Cheaper models for subagents](018-cheaper-models-for-subagents.md) | _pending_ |
