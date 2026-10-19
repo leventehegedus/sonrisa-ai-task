@@ -42,14 +42,11 @@ Emails are written as JSON files to `data/outbox/` unless `SMTP_URL` is set. Adm
 
 Variables can also go in a repo-root `.env` (git-ignored; copy `.env.example`). Real environment variables win over `.env`.
 
-### Real email (Gmail)
+### Real email
 
-1. In your Google account (2-step verification on), create an App password.
-2. `cp .env.example .env`, then fill `SMTP_URL` (`smtps://you%40gmail.com:APP_PASSWORD@smtp.gmail.com:465`, `@` in the address as `%40`) and `SMTP_FROM`.
-3. `npm run dev`.
-4. In the UI add an email channel with your address and press **Send test**.
+By default emails are written to `data/outbox/` and nobody is mailed. To send real email, set `SMTP_URL` (and optionally `SMTP_FROM`) in a git-ignored `.env`, restart, add your address under **Channels**, and press **Send test**.
 
-Gmail rewrites the From header to the authenticated account, so `SMTP_FROM` only shows through on providers that allow it.
+See **[docs/email-setup.md](docs/email-setup.md)** for the full step-by-step guide: Gmail App password, other providers, local Mailpit, troubleshooting and security.
 
 ## Commands
 

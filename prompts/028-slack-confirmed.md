@@ -16,4 +16,4 @@ it works fine with slack too, and I'll revoke the gmail pass as you mentioned
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`edbaca1` (merge of `docs/slack-confirmed`), plus a stale-line cleanup merge
