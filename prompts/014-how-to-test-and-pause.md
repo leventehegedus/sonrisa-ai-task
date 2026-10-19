@@ -26,4 +26,4 @@ pls now finish task 11, explain me what and how can I test and check the current
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`c9e877d` — docs: how-to-test guide (verified live), pause before Task 11, log prompts 013-014, D-022

@@ -31,5 +31,6 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 010 | [Execute subagent-driven; merge planning](010-execute-subagent-driven-merge.md) | `b4a93f7` … `8a9ed68` |
 | 011 | [What caused the interruption? Status of tasks](011-interruption-and-status.md) | `0350486` |
 | 012 | [Wider summary with explanations, then continue](012-progress-summary-and-continue.md) | `0350486` … `a785991` |
-| 013 | [Explain the second interruption](013-second-interruption.md) | _pending_ |
-| 014 | [Finish Task 11 or wait; how to test](014-how-to-test-and-pause.md) | _pending_ |
+| 013 | [Explain the second interruption](013-second-interruption.md) | `c9e877d` |
+| 014 | [Finish Task 11 or wait; how to test](014-how-to-test-and-pause.md) | `c9e877d` |
+| 015 | [Break down Task 11 to rethink it](015-break-down-task-11.md) | _pending_ |
