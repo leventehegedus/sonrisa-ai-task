@@ -29,4 +29,4 @@ okay, understand, pls go on and create the smtp server to able to test it. Here 
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`4ef0659` (merge of `feat/smtp-config`)
