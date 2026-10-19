@@ -1,0 +1,256 @@
+# Review package: 609d5a4..HEAD
+
+## Commits
+37a2332 fix(server): harden source adapters (own-prop alert levels, http(s)-only urls, skip id-less items)
+
+## Files changed
+ server/src/sources/gdacs.ts  |  6 +++---
+ server/src/sources/manual.ts |  2 +-
+ server/src/sources/rss.ts    | 18 ++++++++++++------
+ server/test/sources.test.ts  | 45 +++++++++++++++++++++++++++++++++++++++++++-
+ 4 files changed, 60 insertions(+), 11 deletions(-)
+
+## Diff
+diff --git a/server/src/sources/gdacs.ts b/server/src/sources/gdacs.ts
+index d8d7a91..b1ba341 100644
+--- a/server/src/sources/gdacs.ts
++++ b/server/src/sources/gdacs.ts
+@@ -1,35 +1,35 @@
+ import { z } from 'zod';
+ import { iso3ToIso2 } from '../geo';
+ import type { NewEvent } from '../types';
+ import type { SourceAdapter } from './index';
+-import { cleanText, isoDate, parseRssItems, text } from './rss';
++import { cleanText, httpUrl, isoDate, parseRssItems, text } from './rss';
+ 
+ const SEVERITY: Record<string, number> = { Green: 0.3, Orange: 0.7, Red: 1.0 };
+ 
+ export const gdacs: SourceAdapter<Record<string, never>> = {
+   type: 'gdacs',
+   configSchema: z.object({}).strict() as z.ZodType<Record<string, never>>,
+   url: () => 'https://www.gdacs.org/xml/rss.xml',
+   normalize(body, _config, now) {
+     return parseRssItems(body, 'gdacs').map((item): NewEvent => {
+       const eventId = text(item['gdacs:eventid']);
+       const level = text(item['gdacs:alertlevel']);
+-      const severity = SEVERITY[level];
++      const severity = Object.hasOwn(SEVERITY, level) ? SEVERITY[level] : undefined;
+       if (!eventId || severity === undefined) throw new Error(`gdacs: item missing eventid or unknown alertlevel '${level}'`);
+       const country = iso3ToIso2(text(item['gdacs:iso3'])) ?? null;
+       return {
+         source: 'gdacs',
+         externalId: `${eventId}:${level}`,
+         category: 'disaster',
+         title: cleanText(text(item.title)) ?? '',
+         summary: cleanText(text(item.description)),
+-        url: text(item.link) || null,
++        url: httpUrl(text(item.link)),
+         scope: country ? 'country' : 'unknown',
+         country,
+         severity,
+         occurredAt: isoDate(text(item.pubDate), now),
+         raw: item,
+       };
+     });
+   },
+ };
+diff --git a/server/src/sources/manual.ts b/server/src/sources/manual.ts
+index 95ea3dd..254b174 100644
+--- a/server/src/sources/manual.ts
++++ b/server/src/sources/manual.ts
+@@ -1,20 +1,20 @@
+ import { randomUUID } from 'node:crypto';
+ import { z } from 'zod';
+ import { lookupCountry } from '../geo';
+ import type { NewEvent } from '../types';
+ 
+ export const ManualEventInput = z.object({
+   category: z.enum(['news', 'market', 'disaster']),
+   title: z.string().trim().min(1),
+   summary: z.string().optional(),
+-  url: z.url().optional(),
++  url: z.url({ protocol: /^https?$/ }).optional(),
+   country: z.string().refine((c) => !!lookupCountry(c), 'unknown ISO2 country').optional(),
+   severity: z.number().min(0).max(1),
+ });
+ export type ManualEventInput = z.infer<typeof ManualEventInput>;
+ 
+ export function manualEvent(input: ManualEventInput, now: Date): NewEvent {
+   return {
+     source: 'manual',
+     externalId: `manual:${randomUUID()}`,
+     category: input.category,
+diff --git a/server/src/sources/rss.ts b/server/src/sources/rss.ts
+index 66b69c2..bca778f 100644
+--- a/server/src/sources/rss.ts
++++ b/server/src/sources/rss.ts
+@@ -48,42 +48,48 @@ export function cleanText(s: string): string | null {
+   return out || null;
+ }
+ 
+ export function isoDate(pubDate: string, now: Date): string {
+   const d = new Date(pubDate);
+   return pubDate && !Number.isNaN(d.getTime()) ? d.toISOString() : now.toISOString();
+ }
+ 
+ const lower = (s: string) => s.toLocaleLowerCase('hu');
+ 
++/** Only http(s) links may become event.url (it is rendered as a link and sent in alerts). */
++export const httpUrl = (s: string): string | null => (/^https?:\/\//i.test(s) ? s : null);
++
+ export const rss: SourceAdapter<RssConfig> = {
+   type: 'rss',
+   configSchema: z.object({
+     feedId: z.string().min(1),
+-    url: z.url(),
++    url: z.url({ protocol: /^https?$/ }),
+     country: z.string().refine((c) => !!lookupCountry(c), 'unknown ISO2 country').nullable(),
+     breakingKeywords: z.array(z.string()),
+   }),
+   url: (c) => c.url,
+   normalize(body, config, now) {
+     const breaking = config.breakingKeywords.map((k) => lower(k.trim())).filter(Boolean);
+-    return parseRssItems(body, `rss:${config.feedId}`).map((item): NewEvent => {
++    return parseRssItems(body, `rss:${config.feedId}`).flatMap((item): NewEvent[] => {
+       const title = cleanText(text(item.title)) ?? '';
+-      const link = text(item.link) || null;
++      const rawLink = text(item.link);
++      const externalId = text(item.guid) || rawLink || title;
++      if (!externalId) return []; // no usable id: would collide on UNIQUE(source, external_id)
++      const link = httpUrl(rawLink);
+       const isBreaking = breaking.some((k) => lower(title).includes(k));
+-      return {
++      return [{
+         source: `rss:${config.feedId}`,
+-        externalId: text(item.guid) || link || title,
++        externalId,
+         category: 'news',
+         title,
+         summary: cleanText(text(item.description)),
+         url: link,
+         scope: config.country ? 'country' : 'global',
+         country: config.country,
+         // shortcut: RSS has no importance signal, upgrade to LLM scoring (non-goal v1)
+         severity: isBreaking ? 0.8 : 0.5,
+         occurredAt: isoDate(text(item.pubDate), now),
+         raw: item,
+-      };
++      }];
+     });
+   },
+ };
+diff --git a/server/test/sources.test.ts b/server/test/sources.test.ts
+index 677a301..fbd1d3e 100644
+--- a/server/test/sources.test.ts
++++ b/server/test/sources.test.ts
+@@ -31,20 +31,36 @@ describe('gdacs', () => {
+   });
+ 
+   it('empty iso3 → scope unknown, country null (exactly 3)', () => {
+     const unknown = events.filter((e) => e.scope === 'unknown');
+     expect(unknown).toHaveLength(3);
+     expect(unknown.every((e) => e.country === null)).toBe(true);
+     expect(events.filter((e) => e.scope === 'country').every((e) => /^[A-Z]{2}$/.test(e.country!))).toBe(true);
+   });
+ 
+   it('url', () => expect(gdacs.url({})).toBe('https://www.gdacs.org/xml/rss.xml'));
++
++  const gdacsItem = (inner: string) =>
++    `<rss><channel><item><title>T</title><link>https://www.gdacs.org/x</link><gdacs:eventid>1</gdacs:eventid>${inner}<gdacs:iso3>HUN</gdacs:iso3></item></channel></rss>`;
++
++  it.each(['constructor', 'toString', 'Purple'])('unknown alertlevel %s throws', (level) => {
++    expect(() => gdacs.normalize(gdacsItem(`<gdacs:alertlevel>${level}</gdacs:alertlevel>`), {}, now)).toThrow(/alertlevel/);
++  });
++
++  it('missing alertlevel throws', () => {
++    expect(() => gdacs.normalize(gdacsItem(''), {}, now)).toThrow(/alertlevel/);
++  });
++
++  it('non-http item link → url null', () => {
++    const body = gdacsItem('<gdacs:alertlevel>Red</gdacs:alertlevel>').replace('https://www.gdacs.org/x', 'javascript:alert(1)');
++    expect(gdacs.normalize(body, {}, now)[0]).toMatchObject({ url: null, severity: 1.0, country: 'HU' });
++  });
+ });
+ 
+ describe('rss', () => {
+   it('telex (HU): 50 country events at base severity, link as externalId', () => {
+     const events = rss.normalize(fixture('telex.xml'), rssConfig(), now);
+     expect(events).toHaveLength(50);
+     for (const e of events) {
+       expect(e).toMatchObject({ source: 'rss:telex', category: 'news', scope: 'country', country: 'HU', severity: 0.5 });
+       expect(e.externalId).toMatch(/^https:\/\/telex\.hu\//);
+       expect(e.externalId).toBe(e.url);
+@@ -78,22 +94,42 @@ describe('rss', () => {
+   it('single item, HTML + entities stripped, empty summary → null, bad pubDate → now', () => {
+     const body = `<?xml version="1.0"?><rss><channel><item><title>A &amp; B</title><link>https://x.test/1</link>
+       <description>&lt;p&gt;Hello &amp;amp; &lt;b&gt;world&lt;/b&gt; &amp;#39;q&amp;#39; &amp;#337;&lt;/p&gt;</description><pubDate>nope</pubDate></item></channel></rss>`;
+     const [e, ...rest] = rss.normalize(body, rssConfig(), now);
+     expect(rest).toHaveLength(0);
+     expect(e).toMatchObject({ title: 'A & B', summary: "Hello & world 'q' ő", occurredAt: now.toISOString() });
+     const empty = `<rss><channel><item><title>T</title><link>https://x.test/2</link><description>&lt;br/&gt;</description></item></channel></rss>`;
+     expect(rss.normalize(empty, rssConfig(), now)[0]!.summary).toBeNull();
+   });
+ 
+-  it('config: unknown country rejected', () => {
++  it('non-http(s) item link → url null (still usable as id)', () => {
++    const body = `<rss><channel><item><title>T</title><link>javascript:alert(1)</link></item>
++      <item><title>U</title><link>file:///etc/passwd</link></item></channel></rss>`;
++    const events = rss.normalize(body, rssConfig(), now);
++    expect(events.map((e) => e.url)).toEqual([null, null]);
++    expect(events.map((e) => e.externalId)).toEqual(['javascript:alert(1)', 'file:///etc/passwd']);
++  });
++
++  it('item with no guid, link or title is skipped; title is the last-resort id', () => {
++    const body = `<rss><channel><item><description>no id</description></item>
++      <item><guid> </guid><link></link><title>  </title></item>
++      <item><title>Only a title</title></item></channel></rss>`;
++    const events = rss.normalize(body, rssConfig(), now);
++    expect(events).toHaveLength(1);
++    expect(events[0]).toMatchObject({ externalId: 'Only a title', url: null });
++  });
++
++  it('config: unknown country and non-http(s) feed url rejected', () => {
+     expect(() => rssConfig({ country: 'XX' })).toThrow();
++    expect(() => rssConfig({ url: 'file:///etc/passwd' })).toThrow();
++    expect(() => rssConfig({ url: 'javascript:alert(1)' })).toThrow();
++    expect(rssConfig({ url: 'http://example.com/rss' }).url).toBe('http://example.com/rss');
+     expect(rss.url(rssConfig())).toBe('https://telex.hu/rss');
+   });
+ });
+ 
+ describe('coingecko', () => {
+   const cfg = coingecko.configSchema.parse({});
+ 
+   it('defaults', () => expect(cfg).toEqual({ coins: ['bitcoin', 'ethereum'], minChangePct: 3 }));
+ 
+   it('url lists coins with 24h change', () => {
+@@ -134,22 +170,29 @@ describe('garbage body', () => {
+ describe('manualEvent', () => {
+   it('country event', () => {
+     const e = manualEvent(ManualEventInput.parse({ category: 'disaster', title: 'Flood', country: 'HU', severity: 0.95 }), now);
+     expect(e).toMatchObject({
+       source: 'manual', category: 'disaster', title: 'Flood', summary: null, url: null,
+       scope: 'country', country: 'HU', severity: 0.95, occurredAt: now.toISOString(),
+     });
+     expect(e.externalId).toMatch(/^manual:[0-9a-f-]{36}$/);
+   });
+ 
++  it('accepts http(s) url', () => {
++    expect(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5, url: 'https://a.test/x' }).url).toBe('https://a.test/x');
++    expect(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5, url: 'http://a.test/x' }).url).toBe('http://a.test/x');
++  });
++
+   it('no country → global', () => {
+     const e = manualEvent(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5 }), now);
+     expect(e).toMatchObject({ scope: 'global', country: null });
+   });
+ 
+   it.each([
+     [{ category: 'sports', title: 'X', severity: 0.5 }],
+     [{ category: 'news', title: 'X', severity: 1.5 }],
+     [{ category: 'news', title: 'X', severity: 0.5, country: 'XX' }],
+     [{ category: 'news', title: '', severity: 0.5 }],
++    [{ category: 'news', title: 'X', severity: 0.5, url: 'javascript:alert(1)' }],
++    [{ category: 'news', title: 'X', severity: 0.5, url: 'file:///etc/passwd' }],
+   ])('rejects %j', (input) => expect(ManualEventInput.safeParse(input).success).toBe(false));
+ });

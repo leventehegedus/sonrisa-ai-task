@@ -1,0 +1,588 @@
+5108e3a fix(server): escape slack mrkdwn, drop channel type CHECK, note at-least-once
+09c9979 fix(server): backfill guard, coingecko escalation bands, scheduler log safety
+ server/src/channels/slack.ts     |  5 ++++-
+ server/src/db/schema.sql         |  2 +-
+ server/src/pipeline/dispatch.ts  |  3 ++-
+ server/src/pipeline/ingest.ts    |  6 ++++-
+ server/src/pipeline/poll.ts      |  3 ++-
+ server/src/pipeline/scheduler.ts |  6 +++--
+ server/src/sources/coingecko.ts  |  4 +++-
+ server/test/chain.test.ts        | 48 ++++++++++++++++++++++++++++++++++++++++
+ server/test/channels.test.ts     |  8 +++++++
+ server/test/db.test.ts           |  7 ++++++
+ server/test/dispatch.test.ts     |  4 ++--
+ server/test/ingest.test.ts       | 19 ++++++++++++++++
+ server/test/poll.test.ts         | 40 +++++++++++++++++++++++++++++++++
+ server/test/sources.test.ts      | 36 ++++++++++++++++++++++++++++--
+ 14 files changed, 179 insertions(+), 12 deletions(-)
+diff --git a/server/src/channels/slack.ts b/server/src/channels/slack.ts
+index 456d493..2033376 100644
+--- a/server/src/channels/slack.ts
++++ b/server/src/channels/slack.ts
+@@ -1,25 +1,28 @@
+ import { z } from 'zod';
+ import type { ChannelAdapter } from './index';
+ 
+ export interface SlackOpts { dryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }
+ const configSchema = z.object({
+   webhookUrl: z.url({ protocol: /^https$/ }).refine((u) => u.startsWith('https://hooks.slack.com/'), 'must be a Slack webhook URL'),
+ });
+ 
++// Slack mrkdwn control chars: unescaped, feed text could inject <!channel> pings or disguised <url|label> links.
++const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
++
+ export function slackAdapter(opts: SlackOpts): ChannelAdapter<{ webhookUrl: string }> {
+   return {
+     type: 'slack',
+     configSchema,
+     maskConfig: (config) => ({ ...config, webhookUrl: `https://hooks.slack.com/…/${config.webhookUrl.slice(-4)}` }),
+     async send(config, msg) {
+-      const text = [`*${msg.title}*`, msg.summary, msg.reason, msg.url].filter(Boolean).join('\n');
++      const text = [`*${esc(msg.title)}*`, ...[msg.summary, msg.reason, msg.url].filter((v): v is string => !!v).map(esc)].join('\n');
+       if (opts.dryRun) return opts.log(`[slack dry-run] ${text}`);
+       let res: Response;
+       try {
+         res = await (opts.fetchImpl ?? fetch)(config.webhookUrl, {
+           method: 'POST',
+           headers: { 'content-type': 'application/json' },
+           body: JSON.stringify({ text }),
+           signal: AbortSignal.timeout(10_000),
+         });
+       } catch (err) {
+diff --git a/server/src/db/schema.sql b/server/src/db/schema.sql
+index 8f6c938..effc490 100644
+--- a/server/src/db/schema.sql
++++ b/server/src/db/schema.sql
+@@ -2,21 +2,21 @@ CREATE TABLE IF NOT EXISTS users (
+   id INTEGER PRIMARY KEY,
+   name TEXT NOT NULL,
+   email TEXT NOT NULL,
+   home_country TEXT NOT NULL,
+   is_admin INTEGER NOT NULL DEFAULT 0
+ );
+ 
+ CREATE TABLE IF NOT EXISTS channels (
+   id INTEGER PRIMARY KEY,
+   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+-  type TEXT NOT NULL CHECK (type IN ('email', 'slack')),
++  type TEXT NOT NULL, -- valid = has an adapter in the channel registry; no CHECK so a new adapter needs no schema change
+   config TEXT NOT NULL,
+   enabled INTEGER NOT NULL DEFAULT 1
+ );
+ 
+ CREATE TABLE IF NOT EXISTS rules (
+   id INTEGER PRIMARY KEY,
+   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+   name TEXT NOT NULL,
+   categories TEXT NOT NULL DEFAULT '[]',
+   keywords TEXT NOT NULL DEFAULT '[]',
+diff --git a/server/src/pipeline/dispatch.ts b/server/src/pipeline/dispatch.ts
+index e1a4e9e..8c3a841 100644
+--- a/server/src/pipeline/dispatch.ts
++++ b/server/src/pipeline/dispatch.ts
+@@ -39,16 +39,17 @@ export async function dispatchPending(db: Database, registry: Record<string, Cha
+     } catch (err: any) {
+       const attempts = d.attempts + 1;
+       const last = scrubSecrets(String(err?.message ?? err), config);
+       if (attempts >= MAX_ATTEMPTS) { markError.run('failed', attempts, last, d.next_attempt_at, d.id); out.failed++; }
+       else {
+         markError.run('pending', attempts, last, new Date(now.getTime() + BASE_BACKOFF_MS * 2 ** (attempts - 1)).toISOString(), d.id);
+         out.retried++;
+       }
+       continue;
+     }
+-    // Outside the send try: a DB error here must not be routed into retry (would duplicate the alert).
++    // Outside the send try, so a failed status write is not counted as a failed send.
++    // shortcut: at-least-once — if this write fails after a successful send, the row stays pending and the next tick re-sends it, add a claim-before-send ('sending') state or receiver idempotency keys if duplicates matter
+     markSent.run(ts, d.id);
+     out.sent++;
+   }
+   return out;
+ }
+diff --git a/server/src/pipeline/ingest.ts b/server/src/pipeline/ingest.ts
+index bf5055d..b82a552 100644
+--- a/server/src/pipeline/ingest.ts
++++ b/server/src/pipeline/ingest.ts
+@@ -1,39 +1,43 @@
+ import type { Database } from 'better-sqlite3';
+ import { evaluate } from '../matching';
+ import { rowToEvent, rowToRule, rowToUser } from '../db/rows';
+ import type { EventRow, NewEvent } from '../types';
+ 
+-export function ingest(db: Database, events: NewEvent[], now: Date): { inserted: EventRow[]; deliveriesCreated: number } {
++const MAX_EVENT_AGE_MS = 24 * 3600_000;
++
++export function ingest(db: Database, events: NewEvent[], now: Date, opts: { createDeliveries?: boolean } = {}): { inserted: EventRow[]; deliveriesCreated: number } {
+   const insertEvent = db.prepare(
+     `INSERT OR IGNORE INTO events (source, external_id, category, title, summary, url, country, scope, severity, occurred_at, raw)
+      VALUES (@source, @externalId, @category, @title, @summary, @url, @country, @scope, @severity, @occurredAt, @raw)
+      RETURNING *`,
+   );
+   const insertDelivery = db.prepare(
+     `INSERT OR IGNORE INTO deliveries (rule_id, event_id, channel_id, status, attempts, score, score_breakdown, created_at, next_attempt_at)
+      VALUES (?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
+   );
+   // Only enabled channels owned by the rule's user may receive deliveries.
+   const channelOk = db.prepare(`SELECT 1 FROM channels WHERE id = ? AND user_id = ? AND enabled = 1`);
+ 
+   return db.transaction(() => {
+     const users = new Map(db.prepare(`SELECT * FROM users`).all().map((r) => [(r as any).id as number, rowToUser(r)]));
+     const rules = db.prepare(`SELECT * FROM rules WHERE enabled = 1`).all().map(rowToRule);
+     const ts = now.toISOString();
++    const cutoff = now.getTime() - MAX_EVENT_AGE_MS;
+     const inserted: EventRow[] = [];
+     let deliveriesCreated = 0;
+     for (const e of events) {
+       const row = insertEvent.get({ ...e, raw: JSON.stringify(e.raw ?? null) });
+       if (!row) continue;
+       const event = rowToEvent(row);
+       inserted.push(event);
++      if (opts.createDeliveries === false || Date.parse(event.occurredAt) < cutoff) continue; // stored, never alerted (§7 backfill guard)
+       for (const rule of rules) {
+         const user = users.get(rule.userId);
+         const b = user && evaluate(rule, user, event);
+         if (!b || !b.fires) continue;
+         for (const channelId of rule.channelIds) {
+           if (!channelOk.get(channelId, rule.userId)) continue;
+           deliveriesCreated += insertDelivery.run(rule.id, event.id, channelId, b.importance, JSON.stringify(b), ts, ts).changes;
+         }
+       }
+     }
+diff --git a/server/src/pipeline/poll.ts b/server/src/pipeline/poll.ts
+index a1ce3db..3b7dc0f 100644
+--- a/server/src/pipeline/poll.ts
++++ b/server/src/pipeline/poll.ts
+@@ -38,14 +38,15 @@ async function fetchAndIngest(db: Database, row: any, deps: { fetchImpl: typeof
+   if (!parsed?.success) throw new Error('invalid config');
+   const config = parsed.data;
+ 
+   const res = await deps.fetchImpl(adapter.url(config), {
+     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+     headers: { 'User-Agent': 'world-alerts/0.1' },
+   });
+   if (!res.ok) throw new Error(`HTTP ${res.status}`); // body deliberately not read into the error
+   const body = await res.text();
+   // normalize throws before ingest on a bad body, and ingest is one transaction: no partial events.
+-  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now()).inserted.length;
++  // First poll of a source is a baseline: store what the feed already has, alert only on later items.
++  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now(), { createDeliveries: row.last_polled_at !== null }).inserted.length;
+ }
+ 
+ const message = (err: unknown): string => String((err as Error)?.message ?? err).slice(0, MAX_ERROR_LEN);
+diff --git a/server/src/pipeline/scheduler.ts b/server/src/pipeline/scheduler.ts
+index 18590aa..bee0a84 100644
+--- a/server/src/pipeline/scheduler.ts
++++ b/server/src/pipeline/scheduler.ts
+@@ -32,15 +32,17 @@ export async function runTick(db: Database, deps: SchedulerDeps): Promise<{ poll
+   }
+ }
+ 
+ export function startScheduler(db: Database, deps: SchedulerDeps): { stop(): void } {
+   let running = false;
+   const tick = async () => {
+     if (running) return; // previous tick still in flight
+     running = true;
+     try { await runTick(db, deps); } finally { running = false; }
+   };
+-  void tick();
+-  const timer = setInterval(tick, TICK_MS);
++  // runTick only rejects if deps.log itself throws; swallow it so it can't become an unhandled rejection (process exit).
++  const safeTick = () => { tick().catch(() => {}); };
++  safeTick();
++  const timer = setInterval(safeTick, TICK_MS);
+   timer.unref();
+   return { stop: () => clearInterval(timer) };
+ }
+diff --git a/server/src/sources/coingecko.ts b/server/src/sources/coingecko.ts
+index 622b52b..e63ca05 100644
+--- a/server/src/sources/coingecko.ts
++++ b/server/src/sources/coingecko.ts
+@@ -22,23 +22,25 @@ export const coingecko: SourceAdapter<CoingeckoConfig> = {
+       throw new Error('coingecko: body is not JSON');
+     }
+     const parsed = Body.safeParse(json);
+     if (!parsed.success) throw new Error(`coingecko: unexpected body shape (${parsed.error.message})`);
+     const day = now.toISOString().slice(0, 10);
+     const events: NewEvent[] = [];
+     for (const coin of config.coins) {
+       const q = parsed.data[coin];
+       if (!q || Math.abs(q.usd_24h_change) < config.minChangePct) continue;
+       const pct = q.usd_24h_change;
++      const abs = Math.abs(pct);
++      const band = abs >= 6 ? 6 : abs >= 4 ? 4 : 3; // escalation bands: a bigger move the same day is a new event
+       events.push({
+         source: 'coingecko',
+-        externalId: `${coin}:${day}`,
++        externalId: `${coin}:${day}:${band}`,
+         category: 'market',
+         title: `${coin[0]!.toUpperCase()}${coin.slice(1)} ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% in 24h`,
+         summary: `Price: $${q.usd}`,
+         url: `https://www.coingecko.com/en/coins/${coin}`,
+         scope: 'global',
+         country: null,
+         severity: Math.min(1, Math.abs(pct) / 6),
+         occurredAt: now.toISOString(),
+         raw: { [coin]: q },
+       });
+diff --git a/server/test/chain.test.ts b/server/test/chain.test.ts
+new file mode 100644
+index 0000000..1af73fc
+--- /dev/null
++++ b/server/test/chain.test.ts
+@@ -0,0 +1,48 @@
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { afterEach, describe, expect, it } from 'vitest';
++import { createChannelRegistry } from '../src/channels';
++import { dispatchPending } from '../src/pipeline/dispatch';
++import { pollSource } from '../src/pipeline/poll';
++import { sourceAdapters } from '../src/sources';
++import { addChannel, addRule, addUser, makeDb } from './helpers';
++
++const telexXml = fs.readFileSync(new URL('./fixtures/telex.xml', import.meta.url), 'utf8');
++// Fixture items are dated 2026-10-19 06:42Z..17:04Z; now sits just after them so the 24h guard keeps them all.
++const now = () => new Date('2026-10-19T18:00:00Z');
++const config = { feedId: 'telex', url: 'https://telex.hu/rss', country: 'HU', breakingKeywords: [] };
++let dir: string | undefined;
++afterEach(() => { if (dir) fs.rmSync(dir, { recursive: true, force: true }); dir = undefined; });
++
++describe('full chain: fixture → poll → ingest → dispatch → email outbox', () => {
++  it('first poll is a baseline; only the item new in the second poll is delivered', async () => {
++    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-chain-'));
++    const outbox = path.join(dir, 'outbox');
++    const db = makeDb();
++    const user = addUser(db, { homeCountry: 'HU', email: 'anna@example.com' });
++    addRule(db, user, { channelIds: [addChannel(db, user, { config: { to: 'anna@example.com' } })] });
++    const sourceId = Number(db.prepare(`INSERT INTO sources (type, name, config, poll_interval_s) VALUES ('rss', 'Telex', ?, 300)`)
++      .run(JSON.stringify(config)).lastInsertRowid);
++
++    // Poll 1: the feed without its newest item.
++    const older = telexXml.replace(/<item>[\s\S]*?<\/item>/, '');
++    let body = older;
++    const fetchImpl = (async () => new Response(body)) as unknown as typeof fetch;
++    expect(await pollSource(db, sourceId, { fetchImpl, now })).toEqual({ ok: true, inserted: 49 });
++    expect(db.prepare(`SELECT COUNT(*) FROM deliveries`).pluck().get()).toBe(0);
++
++    // Poll 2: the full feed; one new item.
++    body = telexXml;
++    expect(await pollSource(db, sourceId, { fetchImpl, now })).toEqual({ ok: true, inserted: 1 });
++    const newTitle = sourceAdapters.rss.normalize(telexXml, sourceAdapters.rss.configSchema.parse(config), now())[0]!.title;
++
++    const registry = createChannelRegistry({ outboxDir: outbox, slackDryRun: true, log: () => {} });
++    expect(await dispatchPending(db, registry, now())).toEqual({ sent: 1, failed: 0, retried: 0 });
++    expect(db.prepare(`SELECT status FROM deliveries`).pluck().all()).toEqual(['sent']);
++    const files = fs.readdirSync(outbox);
++    expect(files).toHaveLength(1);
++    const mail = JSON.parse(fs.readFileSync(path.join(outbox, files[0]!), 'utf8'));
++    expect(mail.subject).toBe(`[World Alerts] ${newTitle}`);
++  });
++});
+diff --git a/server/test/channels.test.ts b/server/test/channels.test.ts
+index 93733d3..e41f587 100644
+--- a/server/test/channels.test.ts
++++ b/server/test/channels.test.ts
+@@ -61,20 +61,28 @@ describe('slack', () => {
+     const fetchImpl = vi.fn(async () => new Response('ok', { status: 200 }));
+     await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg);
+     expect(fetchImpl).toHaveBeenCalledTimes(1);
+     const [url, init] = fetchImpl.mock.calls[0] as any;
+     expect(url).toBe(SLACK);
+     const text = JSON.parse(init.body).text;
+     expect(text).toContain('Flood in Hungary');
+     expect(text).toContain('because');
+     expect(text).toContain('https://example.com/a');
+   });
++  it('escapes &, <, > in every untrusted value (no mrkdwn injection)', async () => {
++    const fetchImpl = vi.fn(async () => new Response('ok', { status: 200 }));
++    const hostile = { ...msg, title: '<!channel> <https://evil|Official notice>', summary: 'a & b <@U123>', reason: 'x > y', url: 'https://e.test/?a=1&b=<2>' };
++    await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, hostile);
++    const text = JSON.parse((fetchImpl.mock.calls[0] as any)[1].body).text as string;
++    expect(text).toBe('*&lt;!channel&gt; &lt;https://evil|Official notice&gt;*\na &amp; b &lt;@U123&gt;\nx &gt; y\nhttps://e.test/?a=1&amp;b=&lt;2&gt;');
++    expect(text).not.toMatch(/[<>]/);
++  });
+   it('throws on 500 without leaking the webhook url', async () => {
+     const fetchImpl = vi.fn(async () => new Response('no', { status: 500 }));
+     const err = await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg).catch((e) => e);
+     expect(err.message).toBe('Slack responded 500');
+     expect(err.message).not.toContain('SECRET');
+   });
+   it('passes an abort signal to fetch', async () => {
+     const fetchImpl = vi.fn(async () => new Response('ok'));
+     await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg);
+     expect((fetchImpl.mock.calls[0] as any)[1].signal).toBeInstanceOf(AbortSignal);
+diff --git a/server/test/db.test.ts b/server/test/db.test.ts
+index fe11400..5f2164b 100644
+--- a/server/test/db.test.ts
++++ b/server/test/db.test.ts
+@@ -22,20 +22,27 @@ function seed(db: ReturnType<typeof openDb>) {
+   return { user, channel, rule, event, insertEvent };
+ }
+ 
+ describe('openDb', () => {
+   it('creates all 6 tables', () => {
+     const db = openDb(':memory:');
+     const names = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).pluck().all() as string[];
+     for (const t of ['users', 'channels', 'rules', 'events', 'deliveries', 'sources']) expect(names).toContain(t);
+   });
+ 
++  it('accepts any channel type (validity is the adapter registry, not the schema)', () => {
++    const db = openDb(':memory:');
++    const { user } = seed(db);
++    db.prepare(`INSERT INTO channels (user_id, type, config) VALUES (?, 'teams', '{}')`).run(user);
++    expect(db.prepare(`SELECT type FROM channels ORDER BY id`).pluck().all()).toEqual(['email', 'teams']);
++  });
++
+   it('dedups events on (source, external_id)', () => {
+     const db = openDb(':memory:');
+     const { insertEvent } = seed(db);
+     insertEvent.run();
+     expect(db.prepare(`SELECT count(*) FROM events`).pluck().get()).toBe(1);
+   });
+ 
+   it('dedups deliveries on (event_id, channel_id)', () => {
+     const db = openDb(':memory:');
+     const { rule, event, channel } = seed(db);
+diff --git a/server/test/dispatch.test.ts b/server/test/dispatch.test.ts
+index 5f2c731..954411f 100644
+--- a/server/test/dispatch.test.ts
++++ b/server/test/dispatch.test.ts
+@@ -73,23 +73,23 @@ describe('dispatchPending', () => {
+     expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 0, failed: 1, retried: 0 });
+     expect(d()).toMatchObject({ status: 'failed', last_error: 'channel deleted', attempts: 0 });
+     expect(f.calls).toHaveLength(0);
+   });
+ 
+   it('fails permanently for a disabled channel, unknown type, or invalid config', async () => {
+     const f = fake(async () => {});
+     const a = setup(); a.db.prepare(`UPDATE channels SET enabled = 0`).run();
+     expect(await dispatchPending(a.db, f.registry, t0)).toEqual({ sent: 0, failed: 1, retried: 0 });
+     expect(a.d()).toMatchObject({ status: 'failed', last_error: 'channel disabled', attempts: 0 });
+-    const b = setup(); b.db.prepare(`UPDATE channels SET type = 'slack'`).run();
++    const b = setup(); b.db.prepare(`UPDATE channels SET type = 'sms'`).run();
+     await dispatchPending(b.db, f.registry, t0);
+-    expect(b.d()).toMatchObject({ status: 'failed', last_error: 'unknown channel type slack', attempts: 0 });
++    expect(b.d()).toMatchObject({ status: 'failed', last_error: 'unknown channel type sms', attempts: 0 });
+     const c = setup({ to: 5 });
+     await dispatchPending(c.db, f.registry, t0);
+     expect(c.d()).toMatchObject({ status: 'failed', last_error: 'invalid channel config', attempts: 0 });
+     expect(f.calls).toHaveLength(0);
+   });
+ 
+   it('stores error messages scrubbed of the webhook url', async () => {
+     const { db, d } = setup({ to: 'x@example.com', webhookUrl: SECRET });
+     const f = fake(async () => { throw new Error(`POST ${SECRET} failed`); });
+     await dispatchPending(db, f.registry, t0);
+diff --git a/server/test/ingest.test.ts b/server/test/ingest.test.ts
+index 288185f..5cd4eeb 100644
+--- a/server/test/ingest.test.ts
++++ b/server/test/ingest.test.ts
+@@ -77,11 +77,30 @@ describe('ingest', () => {
+     ingest(db, [ev()], now);
+     expect(deliveries(db)).toHaveLength(0);
+   });
+ 
+   it('a disabled rule gets no delivery', () => {
+     const { db } = setup();
+     db.prepare(`UPDATE rules SET enabled = 0`).run();
+     ingest(db, [ev()], now);
+     expect(deliveries(db)).toHaveLength(0);
+   });
++
++  it('createDeliveries: false stores the event but creates no delivery (first-poll baseline)', () => {
++    const { db } = setup();
++    const r = ingest(db, [ev()], now, { createDeliveries: false });
++    expect(r.inserted).toHaveLength(1);
++    expect(r.deliveriesCreated).toBe(0);
++    expect(deliveries(db)).toHaveLength(0);
++  });
++
++  it('an event older than 24h is stored but creates no delivery; one just inside 24h does', () => {
++    const { db } = setup();
++    const r = ingest(db, [
++      ev({ externalId: 'old', occurredAt: '2026-10-18T11:59:59Z' }),
++      ev({ externalId: 'recent', occurredAt: '2026-10-18T12:00:01Z' }),
++    ], now);
++    expect(r.inserted).toHaveLength(2);
++    expect(r.deliveriesCreated).toBe(1);
++    expect(deliveries(db).map((d) => d.event_id)).toEqual([r.inserted[1].id]);
++  });
+ });
+diff --git a/server/test/poll.test.ts b/server/test/poll.test.ts
+index afeb786..83a5995 100644
+--- a/server/test/poll.test.ts
++++ b/server/test/poll.test.ts
+@@ -1,20 +1,21 @@
+ import { readFileSync } from 'node:fs';
+ import { afterEach, describe, expect, it, vi } from 'vitest';
+ import { z } from 'zod';
+ import { pollSource } from '../src/pipeline/poll';
+ import { runTick, startScheduler } from '../src/pipeline/scheduler';
+ import { ingest } from '../src/pipeline/ingest';
+ import type { ChannelAdapter } from '../src/channels';
+ import { addChannel, addRule, addUser, makeDb } from './helpers';
+ 
+ const gdacsXml = readFileSync(new URL('./fixtures/gdacs.xml', import.meta.url), 'utf8');
++const telexXml = readFileSync(new URL('./fixtures/telex.xml', import.meta.url), 'utf8');
+ const t0 = new Date('2026-10-19T12:00:00Z');
+ const now = () => t0;
+ type Db = ReturnType<typeof makeDb>;
+ 
+ function addSource(db: Db, o: { type?: string; name?: string; config?: unknown; enabled?: boolean; interval?: number; lastPolledAt?: string | null } = {}): number {
+   return Number(db.prepare(`INSERT INTO sources (type, name, config, enabled, poll_interval_s, last_polled_at) VALUES (?, ?, ?, ?, ?, ?)`)
+     .run(o.type ?? 'gdacs', o.name ?? 'GDACS', JSON.stringify(o.config ?? {}), o.enabled === false ? 0 : 1, o.interval ?? 300, o.lastPolledAt ?? null).lastInsertRowid);
+ }
+ const source = (db: Db, id: number) => db.prepare(`SELECT * FROM sources WHERE id = ?`).get(id) as any;
+ const eventCount = (db: Db) => (db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as any).n as number;
+@@ -117,20 +118,43 @@ describe('pollSource', () => {
+ 
+ function fakeRegistry() {
+   const sent: string[] = [];
+   const adapter: ChannelAdapter<any> = {
+     type: 'email', configSchema: z.object({ to: z.string() }).loose(), maskConfig: (c) => c,
+     send: async (_c, m) => { sent.push(m.title); },
+   };
+   return { sent, registry: { email: adapter } as Record<string, ChannelAdapter<any>> };
+ }
+ 
++describe('pollSource backfill baseline', () => {
++  const hu = (db: Db) => { const u = addUser(db); addRule(db, u, { channelIds: [addChannel(db, u)] }); };
++  const deliveryCount = (db: Db) => (db.prepare(`SELECT COUNT(*) AS n FROM deliveries`).get() as any).n as number;
++
++  it('first poll (last_polled_at NULL) stores events but creates no deliveries', async () => {
++    const db = makeDb();
++    hu(db);
++    const id = addSource(db, { type: 'rss', config: rssConfig });
++    const f = stubFetch(() => new Response(telexXml));
++    expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
++    expect(deliveryCount(db)).toBe(0);
++  });
++
++  it('a later poll (last_polled_at set) creates deliveries for new events', async () => {
++    const db = makeDb();
++    hu(db);
++    const id = addSource(db, { type: 'rss', config: rssConfig, lastPolledAt: new Date(t0.getTime() - 300_000).toISOString() });
++    const f = stubFetch(() => new Response(telexXml));
++    expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
++    expect(deliveryCount(db)).toBe(50); // HU news, base severity 0.5 × home 1.0 = threshold
++  });
++});
++
+ describe('runTick', () => {
+   afterEach(() => { vi.useRealTimers(); });
+ 
+   it('a failing source does not stop the next one; failure is logged', async () => {
+     const db = makeDb();
+     const broken = addSource(db, { type: 'rss', name: 'Broken', config: rssConfig });
+     const good = addSource(db);
+     const f = stubFetch((url) => (url === RSS_URL ? new Response('down', { status: 500 }) : new Response(gdacsXml)));
+     const log = vi.fn();
+     const r = await runTick(db, { fetchImpl: f.fetchImpl, registry: fakeRegistry().registry, now, log });
+@@ -197,11 +221,27 @@ describe('startScheduler', () => {
+     expect(f.calls).toHaveLength(1); // second tick skipped by the guard (source is still due: last_polled_at not yet written)
+     release();
+     await vi.advanceTimersByTimeAsync(0);
+     expect(eventCount(db)).toBe(225);
+     await vi.advanceTimersByTimeAsync(300_000);
+     expect(f.calls).toHaveLength(2); // due again after poll_interval_s, guard released
+     s.stop();
+     await vi.advanceTimersByTimeAsync(600_000);
+     expect(f.calls).toHaveLength(2);
+   });
++
++  it('a throwing log never becomes an unhandled rejection', async () => {
++    const db = makeDb();
++    addSource(db, { type: 'twitter' }); // fails every poll → log is called
++    const rejections: unknown[] = [];
++    const onRejection = (r: unknown) => { rejections.push(r); };
++    process.on('unhandledRejection', onRejection);
++    try {
++      const s = startScheduler(db, { fetchImpl: stubFetch(() => new Response('')).fetchImpl, registry: fakeRegistry().registry, now, log: () => { throw new Error('log down'); } });
++      await new Promise((r) => setTimeout(r, 20));
++      s.stop();
++    } finally {
++      process.off('unhandledRejection', onRejection);
++    }
++    expect(rejections).toEqual([]);
++  });
+ });
+diff --git a/server/test/sources.test.ts b/server/test/sources.test.ts
+index fbd1d3e..69b46e6 100644
+--- a/server/test/sources.test.ts
++++ b/server/test/sources.test.ts
+@@ -1,14 +1,16 @@
+ import { describe, it, expect } from 'vitest';
+ import { readFileSync } from 'node:fs';
+ import { sourceAdapters } from '../src/sources';
+ import { manualEvent, ManualEventInput } from '../src/sources/manual';
++import { ingest } from '../src/pipeline/ingest';
++import { addChannel, addRule, addUser, makeDb } from './helpers';
+ 
+ const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
+ const now = new Date('2026-10-19T18:00:00Z');
+ const { gdacs, rss, coingecko } = sourceAdapters;
+ const rssConfig = (over: object = {}) =>
+   rss.configSchema.parse({ feedId: 'telex', url: 'https://telex.hu/rss', country: 'HU', breakingKeywords: [], ...over });
+ 
+ describe('gdacs', () => {
+   const events = gdacs.normalize(fixture('gdacs.xml'), gdacs.configSchema.parse({}), now);
+ 
+@@ -143,26 +145,56 @@ describe('coingecko', () => {
+   });
+ 
+   it('BTC -6 → severity 1, ETH +4 → 4/6', () => {
+     const body = JSON.stringify({
+       bitcoin: { usd: 81941, usd_24h_change: -6 },
+       ethereum: { usd: 2400.65, usd_24h_change: 4 },
+     });
+     const events = coingecko.normalize(body, cfg, now);
+     expect(events).toHaveLength(2);
+     expect(events[0]).toMatchObject({
+-      source: 'coingecko', category: 'market', severity: 1.0, scope: 'global', country: null, externalId: 'bitcoin:2026-10-19',
++      source: 'coingecko', category: 'market', severity: 1.0, scope: 'global', country: null, externalId: 'bitcoin:2026-10-19:6',
+     });
+     expect(events[0]!.title).toContain('-6.0%');
+     expect(events[1]!.severity).toBeCloseTo(4 / 6, 9);
+     expect(events[1]!.title).toContain('+4.0%');
+-    expect(events[1]!.externalId).toBe('ethereum:2026-10-19');
++    expect(events[1]!.externalId).toBe('ethereum:2026-10-19:4');
++  });
++});
++
++describe('coingecko escalation bands', () => {
++  const cfg = coingecko.configSchema.parse({ coins: ['bitcoin'] });
++  const at = (change: number) => coingecko.normalize(JSON.stringify({ bitcoin: { usd: 1, usd_24h_change: change } }), cfg, now);
++
++  it.each([
++    [3, ':3'], [-3.1, ':3'], [3.99, ':3'], [4, ':4'], [-5.9, ':4'], [6, ':6'], [-8, ':6'],
++  ])('change %s → band %s', (change, band) => {
++    const [e] = at(change);
++    expect(e!.externalId).toBe(`bitcoin:2026-10-19${band}`);
++    expect(e!.severity).toBeCloseTo(Math.min(1, Math.abs(change) / 6), 9);
++  });
++
++  it('2.99% → no event', () => expect(at(2.99)).toHaveLength(0));
++
++  it('-3.1% then -8% the same UTC day → two events; the second alerts a HU user at the default threshold', () => {
++    const db = makeDb();
++    const user = addUser(db, { homeCountry: 'HU' });
++    addRule(db, user, { channelIds: [addChannel(db, user)] });
++    const first = ingest(db, at(-3.1), now);
++    expect(first.inserted).toHaveLength(1);
++    expect(first.deliveriesCreated).toBe(0);
++    const second = ingest(db, at(-8), now);
++    expect(second.inserted).toHaveLength(1);
++    expect(second.inserted[0]!.externalId).toBe('bitcoin:2026-10-19:6');
++    expect(second.deliveriesCreated).toBe(1);
++    // a re-poll in the same band is deduped
++    expect(ingest(db, at(-7), now).inserted).toHaveLength(0);
+   });
+ });
+ 
+ describe('garbage body', () => {
+   it.each([
+     ['gdacs', () => gdacs.normalize('<html>oops', {}, now)],
+     ['rss', () => rss.normalize('<html>oops', rssConfig(), now)],
+     ['coingecko', () => coingecko.normalize('<html>oops', coingecko.configSchema.parse({}), now)],
+   ])('%s throws', (_name, fn) => expect(fn).toThrow());
+ });

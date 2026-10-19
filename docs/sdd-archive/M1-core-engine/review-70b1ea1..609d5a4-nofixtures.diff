@@ -1,0 +1,420 @@
+609d5a4 feat(server): gdacs, rss, coingecko, manual source adapters
+ server/src/sources/coingecko.ts     |    48 +
+ server/src/sources/gdacs.ts         |    35 +
+ server/src/sources/index.ts         |    14 +
+ server/src/sources/manual.ts        |    30 +
+ server/src/sources/rss.ts           |    89 +
+ server/test/fixtures/bbcworld.xml   |   228 +
+ server/test/fixtures/coingecko.json |     1 +
+ server/test/fixtures/gdacs.xml      | 12166 ++++++++++++++++++++++++++++++++++
+ server/test/fixtures/hvg.xml        |  1186 ++++
+ server/test/fixtures/telex.xml      |     2 +
+ server/test/sources.test.ts         |   155 +
+ 11 files changed, 13954 insertions(+)
+diff --git a/server/src/sources/coingecko.ts b/server/src/sources/coingecko.ts
+new file mode 100644
+index 0000000..622b52b
+--- /dev/null
++++ b/server/src/sources/coingecko.ts
+@@ -0,0 +1,48 @@
++import { z } from 'zod';
++import type { NewEvent } from '../types';
++import type { SourceAdapter } from './index';
++
++export interface CoingeckoConfig { coins: string[]; minChangePct: number }
++
++const Body = z.record(z.string(), z.object({ usd: z.number(), usd_24h_change: z.number() }));
++
++export const coingecko: SourceAdapter<CoingeckoConfig> = {
++  type: 'coingecko',
++  configSchema: z.object({
++    coins: z.array(z.string().regex(/^[a-z0-9-]+$/)).min(1).default(['bitcoin', 'ethereum']),
++    minChangePct: z.number().positive().default(3),
++  }) as z.ZodType<CoingeckoConfig>,
++  url: (c) =>
++    `https://api.coingecko.com/api/v3/simple/price?ids=${c.coins.join(',')}&vs_currencies=usd&include_24hr_change=true`,
++  normalize(body, config, now) {
++    let json: unknown;
++    try {
++      json = JSON.parse(body);
++    } catch {
++      throw new Error('coingecko: body is not JSON');
++    }
++    const parsed = Body.safeParse(json);
++    if (!parsed.success) throw new Error(`coingecko: unexpected body shape (${parsed.error.message})`);
++    const day = now.toISOString().slice(0, 10);
++    const events: NewEvent[] = [];
++    for (const coin of config.coins) {
++      const q = parsed.data[coin];
++      if (!q || Math.abs(q.usd_24h_change) < config.minChangePct) continue;
++      const pct = q.usd_24h_change;
++      events.push({
++        source: 'coingecko',
++        externalId: `${coin}:${day}`,
++        category: 'market',
++        title: `${coin[0]!.toUpperCase()}${coin.slice(1)} ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% in 24h`,
++        summary: `Price: $${q.usd}`,
++        url: `https://www.coingecko.com/en/coins/${coin}`,
++        scope: 'global',
++        country: null,
++        severity: Math.min(1, Math.abs(pct) / 6),
++        occurredAt: now.toISOString(),
++        raw: { [coin]: q },
++      });
++    }
++    return events;
++  },
++};
+diff --git a/server/src/sources/gdacs.ts b/server/src/sources/gdacs.ts
+new file mode 100644
+index 0000000..d8d7a91
+--- /dev/null
++++ b/server/src/sources/gdacs.ts
+@@ -0,0 +1,35 @@
++import { z } from 'zod';
++import { iso3ToIso2 } from '../geo';
++import type { NewEvent } from '../types';
++import type { SourceAdapter } from './index';
++import { cleanText, isoDate, parseRssItems, text } from './rss';
++
++const SEVERITY: Record<string, number> = { Green: 0.3, Orange: 0.7, Red: 1.0 };
++
++export const gdacs: SourceAdapter<Record<string, never>> = {
++  type: 'gdacs',
++  configSchema: z.object({}).strict() as z.ZodType<Record<string, never>>,
++  url: () => 'https://www.gdacs.org/xml/rss.xml',
++  normalize(body, _config, now) {
++    return parseRssItems(body, 'gdacs').map((item): NewEvent => {
++      const eventId = text(item['gdacs:eventid']);
++      const level = text(item['gdacs:alertlevel']);
++      const severity = SEVERITY[level];
++      if (!eventId || severity === undefined) throw new Error(`gdacs: item missing eventid or unknown alertlevel '${level}'`);
++      const country = iso3ToIso2(text(item['gdacs:iso3'])) ?? null;
++      return {
++        source: 'gdacs',
++        externalId: `${eventId}:${level}`,
++        category: 'disaster',
++        title: cleanText(text(item.title)) ?? '',
++        summary: cleanText(text(item.description)),
++        url: text(item.link) || null,
++        scope: country ? 'country' : 'unknown',
++        country,
++        severity,
++        occurredAt: isoDate(text(item.pubDate), now),
++        raw: item,
++      };
++    });
++  },
++};
+diff --git a/server/src/sources/index.ts b/server/src/sources/index.ts
+new file mode 100644
+index 0000000..1a92683
+--- /dev/null
++++ b/server/src/sources/index.ts
+@@ -0,0 +1,14 @@
++import type { z } from 'zod';
++import type { NewEvent } from '../types';
++import { gdacs } from './gdacs';
++import { rss } from './rss';
++import { coingecko } from './coingecko';
++
++export interface SourceAdapter<C> {
++  type: 'gdacs' | 'rss' | 'coingecko';
++  configSchema: z.ZodType<C>;
++  url(config: C): string;
++  normalize(body: string, config: C, now: Date): NewEvent[]; // pure; throws on unparseable body
++}
++
++export const sourceAdapters: Record<SourceAdapter<any>['type'], SourceAdapter<any>> = { gdacs, rss, coingecko };
+diff --git a/server/src/sources/manual.ts b/server/src/sources/manual.ts
+new file mode 100644
+index 0000000..95ea3dd
+--- /dev/null
++++ b/server/src/sources/manual.ts
+@@ -0,0 +1,30 @@
++import { randomUUID } from 'node:crypto';
++import { z } from 'zod';
++import { lookupCountry } from '../geo';
++import type { NewEvent } from '../types';
++
++export const ManualEventInput = z.object({
++  category: z.enum(['news', 'market', 'disaster']),
++  title: z.string().trim().min(1),
++  summary: z.string().optional(),
++  url: z.url().optional(),
++  country: z.string().refine((c) => !!lookupCountry(c), 'unknown ISO2 country').optional(),
++  severity: z.number().min(0).max(1),
++});
++export type ManualEventInput = z.infer<typeof ManualEventInput>;
++
++export function manualEvent(input: ManualEventInput, now: Date): NewEvent {
++  return {
++    source: 'manual',
++    externalId: `manual:${randomUUID()}`,
++    category: input.category,
++    title: input.title,
++    summary: input.summary || null,
++    url: input.url ?? null,
++    scope: input.country ? 'country' : 'global',
++    country: input.country ?? null,
++    severity: input.severity,
++    occurredAt: now.toISOString(),
++    raw: input,
++  };
++}
+diff --git a/server/src/sources/rss.ts b/server/src/sources/rss.ts
+new file mode 100644
+index 0000000..66b69c2
+--- /dev/null
++++ b/server/src/sources/rss.ts
+@@ -0,0 +1,89 @@
++import { XMLParser } from 'fast-xml-parser';
++import { z } from 'zod';
++import { lookupCountry } from '../geo';
++import type { NewEvent } from '../types';
++import type { SourceAdapter } from './index';
++
++export interface RssConfig { feedId: string; url: string; country: string | null; breakingKeywords: string[] }
++
++const parser = new XMLParser({
++  ignoreAttributes: false,
++  parseTagValue: false, // keep ids/titles as strings ("2026" must not become a number)
++  isArray: (name, jpath) => name === 'item' && jpath === 'rss.channel.item',
++});
++
++/** Parse an RSS 2.0 body into its <item> objects. Throws if there is no rss.channel. */
++export function parseRssItems(body: string, label: string): Record<string, unknown>[] {
++  let doc: any;
++  try {
++    doc = parser.parse(body);
++  } catch (err) {
++    throw new Error(`${label}: unparseable XML (${(err as Error).message})`);
++  }
++  const channel = doc?.rss?.channel;
++  if (!channel || typeof channel !== 'object') throw new Error(`${label}: no rss.channel in body`);
++  return channel.item ?? [];
++}
++
++/** Text content of a parsed node: plain string, or `{ '#text': ... }` when the tag has attributes. */
++export function text(node: unknown): string {
++  if (node == null) return '';
++  if (typeof node === 'object') return text((node as Record<string, unknown>)['#text']);
++  return String(node).trim();
++}
++
++const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
++
++// shortcut: regex HTML strip, use a sanitizer if summaries are ever rendered as HTML
++export function cleanText(s: string): string | null {
++  const out = s
++    .replace(/<[^>]*>/g, ' ')
++    .replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (m, e: string) => {
++      if (!e.startsWith('#')) return ENTITIES[e.toLowerCase()] ?? m;
++      const code = /^#x/i.test(e) ? parseInt(e.slice(2), 16) : Number(e.slice(1));
++      return code <= 0x10ffff ? String.fromCodePoint(code) : m;
++    })
++    .replace(/\s+/g, ' ')
++    .trim();
++  return out || null;
++}
++
++export function isoDate(pubDate: string, now: Date): string {
++  const d = new Date(pubDate);
++  return pubDate && !Number.isNaN(d.getTime()) ? d.toISOString() : now.toISOString();
++}
++
++const lower = (s: string) => s.toLocaleLowerCase('hu');
++
++export const rss: SourceAdapter<RssConfig> = {
++  type: 'rss',
++  configSchema: z.object({
++    feedId: z.string().min(1),
++    url: z.url(),
++    country: z.string().refine((c) => !!lookupCountry(c), 'unknown ISO2 country').nullable(),
++    breakingKeywords: z.array(z.string()),
++  }),
++  url: (c) => c.url,
++  normalize(body, config, now) {
++    const breaking = config.breakingKeywords.map((k) => lower(k.trim())).filter(Boolean);
++    return parseRssItems(body, `rss:${config.feedId}`).map((item): NewEvent => {
++      const title = cleanText(text(item.title)) ?? '';
++      const link = text(item.link) || null;
++      const isBreaking = breaking.some((k) => lower(title).includes(k));
++      return {
++        source: `rss:${config.feedId}`,
++        externalId: text(item.guid) || link || title,
++        category: 'news',
++        title,
++        summary: cleanText(text(item.description)),
++        url: link,
++        scope: config.country ? 'country' : 'global',
++        country: config.country,
++        // shortcut: RSS has no importance signal, upgrade to LLM scoring (non-goal v1)
++        severity: isBreaking ? 0.8 : 0.5,
++        occurredAt: isoDate(text(item.pubDate), now),
++        raw: item,
++      };
++    });
++  },
++};
+diff --git a/server/test/sources.test.ts b/server/test/sources.test.ts
+new file mode 100644
+index 0000000..677a301
+--- /dev/null
++++ b/server/test/sources.test.ts
+@@ -0,0 +1,155 @@
++import { describe, it, expect } from 'vitest';
++import { readFileSync } from 'node:fs';
++import { sourceAdapters } from '../src/sources';
++import { manualEvent, ManualEventInput } from '../src/sources/manual';
++
++const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
++const now = new Date('2026-10-19T18:00:00Z');
++const { gdacs, rss, coingecko } = sourceAdapters;
++const rssConfig = (over: object = {}) =>
++  rss.configSchema.parse({ feedId: 'telex', url: 'https://telex.hu/rss', country: 'HU', breakingKeywords: [], ...over });
++
++describe('gdacs', () => {
++  const events = gdacs.normalize(fixture('gdacs.xml'), gdacs.configSchema.parse({}), now);
++
++  it('returns 225 disaster events', () => {
++    expect(events).toHaveLength(225);
++    expect(events.every((e) => e.category === 'disaster' && e.source === 'gdacs')).toBe(true);
++  });
++
++  it('maps the first item', () => {
++    expect(events[0]).toMatchObject({ externalId: '1572503:Green', country: 'VU', scope: 'country', severity: 0.3 });
++    expect(events[0]!.title).toContain('Vanuatu');
++    expect(events[0]!.occurredAt).toBe('2026-10-19T08:09:51.000Z');
++  });
++
++  it('maps alert levels to severity', () => {
++    expect(events.filter((e) => e.severity === 1.0)).toHaveLength(1);
++    expect(events.filter((e) => e.severity === 0.7)).toHaveLength(5);
++    expect(events.filter((e) => e.severity === 0.3)).toHaveLength(219);
++    expect(events.find((e) => e.severity === 1.0)!.externalId).toMatch(/:Red$/);
++  });
++
++  it('empty iso3 → scope unknown, country null (exactly 3)', () => {
++    const unknown = events.filter((e) => e.scope === 'unknown');
++    expect(unknown).toHaveLength(3);
++    expect(unknown.every((e) => e.country === null)).toBe(true);
++    expect(events.filter((e) => e.scope === 'country').every((e) => /^[A-Z]{2}$/.test(e.country!))).toBe(true);
++  });
++
++  it('url', () => expect(gdacs.url({})).toBe('https://www.gdacs.org/xml/rss.xml'));
++});
++
++describe('rss', () => {
++  it('telex (HU): 50 country events at base severity, link as externalId', () => {
++    const events = rss.normalize(fixture('telex.xml'), rssConfig(), now);
++    expect(events).toHaveLength(50);
++    for (const e of events) {
++      expect(e).toMatchObject({ source: 'rss:telex', category: 'news', scope: 'country', country: 'HU', severity: 0.5 });
++      expect(e.externalId).toMatch(/^https:\/\/telex\.hu\//);
++      expect(e.externalId).toBe(e.url);
++      expect(e.summary ?? '').not.toMatch(/<[^>]+>/);
++    }
++    expect(events[0]!.occurredAt).toBe('2026-10-19T17:04:41.000Z');
++  });
++
++  it('breaking keyword in title (case-insensitive, accented) → 0.8', () => {
++    const events = rss.normalize(fixture('telex.xml'), rssConfig({ breakingKeywords: ['ZAVARGÁS'] }), now);
++    const hit = events.filter((e) => e.severity === 0.8);
++    expect(hit.length).toBeGreaterThan(0);
++    expect(hit.every((e) => e.title.toLocaleLowerCase('hu').includes('zavargás'))).toBe(true);
++    expect(events.filter((e) => e.severity === 0.5)).toHaveLength(50 - hit.length);
++  });
++
++  it('bbcworld (country null) → global, guid object handled', () => {
++    const events = rss.normalize(fixture('bbcworld.xml'), rssConfig({ feedId: 'bbc', country: null }), now);
++    expect(events).toHaveLength(26);
++    for (const e of events) {
++      expect(e).toMatchObject({ source: 'rss:bbc', scope: 'global', country: null });
++      expect(typeof e.externalId).toBe('string');
++      expect(e.externalId.length).toBeGreaterThan(0);
++    }
++  });
++
++  it('hvg (HU): 60 events', () => {
++    expect(rss.normalize(fixture('hvg.xml'), rssConfig({ feedId: 'hvg' }), now)).toHaveLength(60);
++  });
++
++  it('single item, HTML + entities stripped, empty summary → null, bad pubDate → now', () => {
++    const body = `<?xml version="1.0"?><rss><channel><item><title>A &amp; B</title><link>https://x.test/1</link>
++      <description>&lt;p&gt;Hello &amp;amp; &lt;b&gt;world&lt;/b&gt; &amp;#39;q&amp;#39; &amp;#337;&lt;/p&gt;</description><pubDate>nope</pubDate></item></channel></rss>`;
++    const [e, ...rest] = rss.normalize(body, rssConfig(), now);
++    expect(rest).toHaveLength(0);
++    expect(e).toMatchObject({ title: 'A & B', summary: "Hello & world 'q' ő", occurredAt: now.toISOString() });
++    const empty = `<rss><channel><item><title>T</title><link>https://x.test/2</link><description>&lt;br/&gt;</description></item></channel></rss>`;
++    expect(rss.normalize(empty, rssConfig(), now)[0]!.summary).toBeNull();
++  });
++
++  it('config: unknown country rejected', () => {
++    expect(() => rssConfig({ country: 'XX' })).toThrow();
++    expect(rss.url(rssConfig())).toBe('https://telex.hu/rss');
++  });
++});
++
++describe('coingecko', () => {
++  const cfg = coingecko.configSchema.parse({});
++
++  it('defaults', () => expect(cfg).toEqual({ coins: ['bitcoin', 'ethereum'], minChangePct: 3 }));
++
++  it('url lists coins with 24h change', () => {
++    expect(coingecko.url(cfg)).toBe(
++      'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true',
++    );
++  });
++
++  it('fixture (+1.04%, +1.26%) → 0 events', () => {
++    expect(coingecko.normalize(fixture('coingecko.json'), cfg, now)).toHaveLength(0);
++  });
++
++  it('BTC -6 → severity 1, ETH +4 → 4/6', () => {
++    const body = JSON.stringify({
++      bitcoin: { usd: 81941, usd_24h_change: -6 },
++      ethereum: { usd: 2400.65, usd_24h_change: 4 },
++    });
++    const events = coingecko.normalize(body, cfg, now);
++    expect(events).toHaveLength(2);
++    expect(events[0]).toMatchObject({
++      source: 'coingecko', category: 'market', severity: 1.0, scope: 'global', country: null, externalId: 'bitcoin:2026-10-19',
++    });
++    expect(events[0]!.title).toContain('-6.0%');
++    expect(events[1]!.severity).toBeCloseTo(4 / 6, 9);
++    expect(events[1]!.title).toContain('+4.0%');
++    expect(events[1]!.externalId).toBe('ethereum:2026-10-19');
++  });
++});
++
++describe('garbage body', () => {
++  it.each([
++    ['gdacs', () => gdacs.normalize('<html>oops', {}, now)],
++    ['rss', () => rss.normalize('<html>oops', rssConfig(), now)],
++    ['coingecko', () => coingecko.normalize('<html>oops', coingecko.configSchema.parse({}), now)],
++  ])('%s throws', (_name, fn) => expect(fn).toThrow());
++});
++
++describe('manualEvent', () => {
++  it('country event', () => {
++    const e = manualEvent(ManualEventInput.parse({ category: 'disaster', title: 'Flood', country: 'HU', severity: 0.95 }), now);
++    expect(e).toMatchObject({
++      source: 'manual', category: 'disaster', title: 'Flood', summary: null, url: null,
++      scope: 'country', country: 'HU', severity: 0.95, occurredAt: now.toISOString(),
++    });
++    expect(e.externalId).toMatch(/^manual:[0-9a-f-]{36}$/);
++  });
++
++  it('no country → global', () => {
++    const e = manualEvent(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5 }), now);
++    expect(e).toMatchObject({ scope: 'global', country: null });
++  });
++
++  it.each([
++    [{ category: 'sports', title: 'X', severity: 0.5 }],
++    [{ category: 'news', title: 'X', severity: 1.5 }],
++    [{ category: 'news', title: 'X', severity: 0.5, country: 'XX' }],
++    [{ category: 'news', title: '', severity: 0.5 }],
++  ])('rejects %j', (input) => expect(ManualEventInput.safeParse(input).success).toBe(false));
++});

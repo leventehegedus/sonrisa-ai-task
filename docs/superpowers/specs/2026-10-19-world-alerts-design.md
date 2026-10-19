@@ -113,7 +113,9 @@ All three feeds were **checked on 2026-10-19 with live requests** before they we
 
 **Known weakness:** news severity is crude, because RSS carries no importance signal. That is acceptable for v1 and noted as a shortcut in the code. The obvious upgrade is LLM scoring, which is a non-goal for v1.
 
-**Market events:** emit an event only when `abs(change) ≥ 3%`, and at most once per coin per UTC day (`external_id = coin:YYYY-MM-DD`). **[agent's call]**
+**Market events:** emit an event only when `abs(change) ≥ 3%`. `external_id = coin:YYYY-MM-DD:band`, where band is the highest of 3 / 4 / 6 (%) that `abs(change)` has reached. So there is one event per coin per UTC day **per band**: a move that escalates from 3% to 8% the same day creates a new event and can still alert. At most 3 market events per coin per day. **[agent's call, amended after the M1 review (R-011)]** The first version, "once per day", let a 3% move that doesn't alert use up the day, so a later crash was never reported.
+
+**Backfill guard [agent's call, M1 review (R-012)]:** the first poll of a source (`last_polled_at IS NULL`) only records a baseline: events are stored, no deliveries are created. Events whose `occurred_at` is more than 24 h before ingest time never create deliveries. Without this, the first start sent about 111 alerts per Hungarian user for items up to 5 days old.
 
 **GDACS noise:** wildfire Green alerts are about 85% of the feed. They're kept, because the threshold handles them: Green 0.3 never passes the 0.5 default threshold.
 

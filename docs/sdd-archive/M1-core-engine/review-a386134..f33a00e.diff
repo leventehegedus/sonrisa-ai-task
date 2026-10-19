@@ -1,0 +1,94 @@
+# Review package: a386134..HEAD
+
+## Commits
+f33a00e fix(server): dispatcher marks sent outside retry path, fails corrupt delivery data
+
+## Files changed
+ server/src/pipeline/dispatch.ts | 11 ++++++++---
+ server/test/dispatch.test.ts    | 21 +++++++++++++++++++--
+ 2 files changed, 27 insertions(+), 5 deletions(-)
+
+## Diff
+diff --git a/server/src/pipeline/dispatch.ts b/server/src/pipeline/dispatch.ts
+index 99fb88e..e1a4e9e 100644
+--- a/server/src/pipeline/dispatch.ts
++++ b/server/src/pipeline/dispatch.ts
+@@ -24,26 +24,31 @@ export async function dispatchPending(db: Database, registry: Record<string, Cha
+     const fail = (why: string) => { markFailed.run(why, d.id); out.failed++; };
+     if (d.channel_id === null) { fail('channel deleted'); continue; }
+     if (!d.c_enabled) { fail('channel disabled'); continue; }
+     const adapter = registry[d.c_type];
+     if (!adapter) { fail(`unknown channel type ${d.c_type}`); continue; }
+     let parsed;
+     try { parsed = adapter.configSchema.safeParse(JSON.parse(d.c_config)); } catch { parsed = null; }
+     if (!parsed?.success) { fail('invalid channel config'); continue; }
+     const config = parsed.data;
+ 
++    let msg;
++    try { msg = buildMessage(rowToEvent(getEvent.get(d.event_id)), JSON.parse(d.score_breakdown) as ScoreBreakdown); } catch { fail('corrupt delivery data'); continue; }
++
+     try {
+-      await adapter.send(config, buildMessage(rowToEvent(getEvent.get(d.event_id)), JSON.parse(d.score_breakdown) as ScoreBreakdown));
+-      markSent.run(ts, d.id);
+-      out.sent++;
++      await adapter.send(config, msg);
+     } catch (err: any) {
+       const attempts = d.attempts + 1;
+       const last = scrubSecrets(String(err?.message ?? err), config);
+       if (attempts >= MAX_ATTEMPTS) { markError.run('failed', attempts, last, d.next_attempt_at, d.id); out.failed++; }
+       else {
+         markError.run('pending', attempts, last, new Date(now.getTime() + BASE_BACKOFF_MS * 2 ** (attempts - 1)).toISOString(), d.id);
+         out.retried++;
+       }
++      continue;
+     }
++    // Outside the send try: a DB error here must not be routed into retry (would duplicate the alert).
++    markSent.run(ts, d.id);
++    out.sent++;
+   }
+   return out;
+ }
+diff --git a/server/test/dispatch.test.ts b/server/test/dispatch.test.ts
+index fb30889..5f2c731 100644
+--- a/server/test/dispatch.test.ts
++++ b/server/test/dispatch.test.ts
+@@ -91,20 +91,37 @@ describe('dispatchPending', () => {
+ 
+   it('stores error messages scrubbed of the webhook url', async () => {
+     const { db, d } = setup({ to: 'x@example.com', webhookUrl: SECRET });
+     const f = fake(async () => { throw new Error(`POST ${SECRET} failed`); });
+     await dispatchPending(db, f.registry, t0);
+     expect(d().last_error).toBe('POST *** failed');
+     expect(d().last_error).not.toContain('SECRETSECRET');
+   });
+ 
+   it('a throwing adapter does not abort the remaining deliveries', async () => {
+-    const { db, user, channel } = setup();
++    const { db } = setup();
+     ingest(db, [ev({ externalId: 'e2', title: 'Second' })], t0);
+     let n = 0;
+     const f = fake(async () => { if (n++ === 0) throw new Error('first dies'); });
+     expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 1, failed: 0, retried: 1 });
+     const rows = db.prepare(`SELECT status FROM deliveries ORDER BY id`).all() as any[];
+     expect(rows.map((r) => r.status)).toEqual(['pending', 'sent']);
+-    void user; void channel;
++  });
++
++  it('does not retry (no duplicate send) when marking sent fails after a successful send', async () => {
++    const { db, d } = setup();
++    db.exec(`CREATE TRIGGER no_sent BEFORE UPDATE ON deliveries WHEN NEW.status = 'sent' BEGIN SELECT RAISE(ABORT, 'disk full'); END`);
++    const f = fake(async () => {});
++    await expect(dispatchPending(db, f.registry, t0)).rejects.toThrow('disk full');
++    expect(f.calls).toHaveLength(1);
++    expect(d()).toMatchObject({ status: 'pending', attempts: 0, last_error: null, next_attempt_at: t0.toISOString() });
++  });
++
++  it('fails immediately as corrupt when score_breakdown is not JSON', async () => {
++    const { db, d } = setup();
++    db.prepare(`UPDATE deliveries SET score_breakdown = '{not json'`).run();
++    const f = fake(async () => {});
++    expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 0, failed: 1, retried: 0 });
++    expect(d()).toMatchObject({ status: 'failed', last_error: 'corrupt delivery data', attempts: 0 });
++    expect(f.calls).toHaveLength(0);
+   });
+ });

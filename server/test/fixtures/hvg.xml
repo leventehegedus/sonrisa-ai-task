@@ -1,0 +1,1186 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:a10="http://www.w3.org/2005/Atom" version="2.0">
+  <channel xml:base="https://hvg.hu/rss/" xmlns:media="http://search.yahoo.com/mrss/">
+    <title>HVG</title>
+    <description>Friss hírek a HVG.hu hírportálról.</description>
+    <language>hu-HU</language>
+    <copyright>Copyright © 2026 HVG Kiadó Zrt.</copyright>
+    <lastBuildDate>Mon, 19 Oct 2026 17:08:14 Z</lastBuildDate>
+    <generator>HVG RSS Feed</generator>
+    <ttl>1</ttl>
+    <link>https://hvg.hu</link>
+    <pubDate>Mon, 19 Oct 2026 17:08:14 Z</pubDate>
+    <image>
+      <url>https://cdn.hvg.hu/assets/hvghu/images/hvg-logo.png</url>
+      <title>HVG</title>
+      <link>https://hvg.hu</link>
+    </image>
+    <item>
+      <guid isPermaLink="false">c9da60f2-4d9a-429e-84ee-effd9d105d42</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>atomrobbanás</category>
+      <category>aszteroida</category>
+      <title>Atomrobbanást szimuláltak egy aszteroida közelében, az eredmény több mint biztató</title>
+      <description>A szimulációk alapján valóban meg lehetne védeni a Földet egy, a bolygóra veszélyes aszteroidától.</description>
+      <pubDate>Mon, 19 Oct 2026 17:03:00 Z</pubDate>
+      <a10:updated>2026-10-19T17:03:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/79bcc118-3eef-45e5-9ab7-e6c8ccd56b69.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/79bcc118-3eef-45e5-9ab7-e6c8ccd56b69.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_aszteroida-atomrobbanas-megsemmisites-bolygovedelem</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">0d437fb4-214c-475d-9359-90ecd6c5187e</guid>
+      <a10:author>
+        <a10:email>i.mszabo@hvg.hu (Szabó M.  István)</a10:email>
+      </a10:author>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (Vörös László)</a10:email>
+      </a10:author>
+      <category>Gazdaság</category>
+      <category>podcast</category>
+      <category>Közös költség podcast</category>
+      <category>használt autó ára</category>
+      <category>e-töltő</category>
+      <category>elektormos autó</category>
+      <category>Duna Autó Zrt.</category>
+      <title>Az ötforintos áramot érdemesebb lenne az elektromos autókba tölteni</title>
+      <description>A kínai elektromos és hibrid autók már beszakították Európa kapuját: a fejlett technológia, a látványos dizájn és a szolgáltatási minőség mellé a kínai autókra jellemzően olyan árcédula kerül, amivel a lassan változni képes, hagyományos német, fracia és olasz gyártók alig tudnak lépést tartani. Valóban elkerülhetetlen, hogy kínai autód legyen? Mit tehet és mit tesz Brüsszel? Mi legyen Magyarország státusza, ha egyszerre próbál a kínai autóipari beruházások európai hídfőállása és a hagyományos autógyártás bástyája lenni? Erről szól a mai Közös Költség podcast.</description>
+      <pubDate>Mon, 19 Oct 2026 17:00:00 Z</pubDate>
+      <a10:updated>2026-10-19T17:00:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/6234b089-70e9-486b-98da-580db5b5fb12.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/6234b089-70e9-486b-98da-580db5b5fb12.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/gazdasag">HVG</source>
+      <rank>30</rank>
+      <link>https://hvg.hu/gazdasag/20261019_eelektromos-auto-kina-brusszel-szabalyozas-toltohalozat-kozos-koltseg-podcast</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">84ce0b13-29ec-4705-b117-8c15c03e4592</guid>
+      <author>szerzo@hvg.hu (Földes András)</author>
+      <category>Élet+Stílus</category>
+      <category>videó</category>
+      <category>Duna</category>
+      <title>Hogy került egy gömbmászóka a Dunába?</title>
+      <description>Ötven elszánt ember próbálta partra vontatni a gömbmászókát, ami a Duna rekordalacsony vízállása miatt bukkant elő. Az akció közben megtaláltuk az embert, aki az ősi Diáksziget idején elindította a folyó felé a szocialista játszóterek központi elemét. Videónkból kiderül, hogy nem minden jó program alapja a siker. </description>
+      <pubDate>Mon, 19 Oct 2026 16:58:27 Z</pubDate>
+      <a10:updated>2026-10-19T16:58:27Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/44a7d7f2-892a-45c6-9218-1fbbe468d717.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/44a7d7f2-892a-45c6-9218-1fbbe468d717.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/elet">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/elet/20261019_dombmaszoka-kihuzas-duna</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">a099a6be-bd16-4b59-8fd4-10624e7104fc</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Vállalkozás</category>
+      <category>vállalkozás</category>
+      <category>V-Híd Zrt.</category>
+      <category>Porr Bau GmbH</category>
+      <category>Mészáros Lőrinc</category>
+      <category>építőipar</category>
+      <title>Az osztrákok mégsem vásárolnák fel Mészáros Lőrinc legjövedelmezőbb cégét, de a gépeiket és a dolgozókat lehet, átvennék</title>
+      <description>Az osztrák cég nem ugrana el munkák folytatása előtt, de előtte mindenképpen egyeztetne a kormánnyal.</description>
+      <pubDate>Mon, 19 Oct 2026 16:53:46 Z</pubDate>
+      <a10:updated>2026-10-19T16:53:46Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/a6dfff1c-a299-41b3-a836-d48bda486d56.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/a6dfff1c-a299-41b3-a836-d48bda486d56.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/kkv">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/kkv/20261019_porr-v-hid-felvasarlas-meszaros-lorinc</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">a2783656-62fa-4705-b7d4-1881b275ef19</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Világ</category>
+      <category>politika</category>
+      <category>Carles Puigdemont</category>
+      <category>Spanyolország</category>
+      <category>körözés</category>
+      <category>száműzetés</category>
+      <category>visszatérés</category>
+      <title>Szabadon visszatérhet Spanyolországba Carles Puigdemont, a szakadár katalán kormányfő</title>
+      <description>Jogerősen hatályon kívül helyezték a Katalónia függetlenedéséről népszavazást rendező politikus elleni letartóztatási parancsot, ami miatt közel tíz évig élt önkéntes száműzetésben.</description>
+      <pubDate>Mon, 19 Oct 2026 16:35:57 Z</pubDate>
+      <a10:updated>2026-10-19T16:35:57Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/eefc9456-68a4-470d-a944-194bdbac4353.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/eefc9456-68a4-470d-a944-194bdbac4353.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/vilag">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/vilag/20261019_szabad-visszateres-spanyolorszag-carles-puigdemont-szakadar-katalan-kormanyfo</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">d54eb6c5-c078-44df-b02e-32c2dc05d8cb</guid>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (HVG)</a10:email>
+      </a10:author>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (MTI)</a10:email>
+      </a10:author>
+      <category>Gazdaság</category>
+      <category>gazdaságpolitika</category>
+      <category>Országgyűlés</category>
+      <category>törvénymódosítás</category>
+      <category>költségvetési törvény</category>
+      <category>Kármán András</category>
+      <title>Módosult a 2026-os költségvetés, 7,5 százalékra nőtt a hiánycél</title>
+      <description>Az előző kormány által jelzett 3,7 százalékos hiánycélt 7,5 százalékosra módosították, de valamennyit nőt a bevételi főösszeg is.</description>
+      <pubDate>Mon, 19 Oct 2026 16:10:06 Z</pubDate>
+      <a10:updated>2026-10-19T16:10:06Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/5326f3f1-81d8-4d16-9acd-937ab91d7ec6.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/5326f3f1-81d8-4d16-9acd-937ab91d7ec6.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/gazdasag">HVG</source>
+      <rank>10</rank>
+      <link>https://hvg.hu/gazdasag/20261019_elfogad-2026-koltsegvetes-modositas</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">378e8683-8b4e-49d3-9317-5b37abea106a</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>Google</category>
+      <category>Google-fiók</category>
+      <category>telefonszám</category>
+      <category>ellenőrzés</category>
+      <title>Félti a telefonszámát? A Google titokban az összes Google-fiókjánál megadja</title>
+      <description>A Google – feltehetőleg – 2025 augusztusában minden előzetes jelzés nélkül átállította a felhasználóknál azt a beállítást, ami lehetővé teszi, hogy az illető összes telefonszámát hozzárendelje a készüléken futó összes Google-alkalmazáshoz.</description>
+      <pubDate>Mon, 19 Oct 2026 16:03:00 Z</pubDate>
+      <a10:updated>2026-10-19T16:03:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/26963654-4d01-4396-852f-e2631bf58bd7.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/26963654-4d01-4396-852f-e2631bf58bd7.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_google-telefonszam-google-fiok-ellenorzese</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">221cbdf7-d79b-4df6-8b0a-8841e3d4a3e9</guid>
+      <author>szerzo@hvg.hu (Kovács Gábor)</author>
+      <category>hvg360</category>
+      <category>gazdaságpolitika</category>
+      <category>költségvetés</category>
+      <category>szja</category>
+      <category>államháztartás</category>
+      <category>nyugdíj</category>
+      <title>2027-es költségvetés: zsonglőrködés a kecskével és a káposztával </title>
+      <description>A Pénzügyminisztérium komoly matekleckét kapott: úgy kell csökkenteni a költségvetési hiányt, hogy a kormány közben el tudjon költeni mintegy 2 ezer milliárd forintot a választási ígéretek megvalósítására. A feladat megoldásához szükség volt néhány kreatív megszorításra. </description>
+      <pubDate>Mon, 19 Oct 2026 16:00:00 Z</pubDate>
+      <a10:updated>2026-10-19T16:00:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/e07de7bd-cdc8-4930-9b51-5bc2ffb8c8d6.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/e07de7bd-cdc8-4930-9b51-5bc2ffb8c8d6.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/360">HVG</source>
+      <rank>30</rank>
+      <link>https://hvg.hu/360/20261019_koltsegvetes-2027-ertekeles-osztogatas-es-megszoritas</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">f527bc5a-7e76-4247-96a9-e88cfa1333e9</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>politika</category>
+      <category>Szabó Bálint</category>
+      <category>Magyar Péter</category>
+      <category>Forsthoffer Ágnes</category>
+      <category>Országgyűlés</category>
+      <category>parlament</category>
+      <category>bekiabálás</category>
+      <category>Pócs János</category>
+      <title>Parlamenti közjáték: Szabó Bálint belekiabált Magyar parlamenti felszólalásába, rögtön kiküldték a páholyból</title>
+      <description>Forsthoffer Ágnes házelnök szerint Szabó a bekiabálás előtt is „folyamatosan ki-be mászkált, telefonált, zavarta az ülés munkáját”.</description>
+      <pubDate>Mon, 19 Oct 2026 15:56:50 Z</pubDate>
+      <a10:updated>2026-10-19T15:56:50Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/5f7dc6f6-3097-4b45-bd89-56320c51a751.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/5f7dc6f6-3097-4b45-bd89-56320c51a751.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_szabo-balint-parlament-bekiabalas-magyar-peter</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">ba53c46e-47f3-4fba-aa0a-49480f9bf7de</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>politika</category>
+      <category>Magyar Péter</category>
+      <category>Országgyűlés</category>
+      <category>napirend előtti felszólalás</category>
+      <category>rekordok</category>
+      <category>Török Gábor</category>
+      <title>Rekordhosszú beszédet mondott Magyar Péter a parlamentben, Török Gábornak is feladta a leckét</title>
+      <description>Magyar Péter miniszterelnök napirend előtti felszólalása az 1990-es rendszerváltás utáni időszak leghosszabb parlamenti beszéde volt.</description>
+      <pubDate>Mon, 19 Oct 2026 15:42:18 Z</pubDate>
+      <a10:updated>2026-10-19T15:42:18Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/121267aa-42e1-4f4d-b7ea-6a217e5c761c.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/121267aa-42e1-4f4d-b7ea-6a217e5c761c.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_rekordhosszu-beszed-magyar-peter-parlament-torok-gabor</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">f25c8352-8fc8-4fc1-9ebf-7a290c50a170</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>belpolitika</category>
+      <category>Pósfai Gábor</category>
+      <category>belügyminiszter</category>
+      <category>rendvédelmi dolgozók</category>
+      <category>béremelés</category>
+      <title>Pósfai Gábor: A belügyi dolgozók bére januártól átalgosan 15 százalékkal emelkedik</title>
+      <description>A belügyminiszter közzétette a részleteket a béremelésekről.</description>
+      <pubDate>Mon, 19 Oct 2026 15:18:51 Z</pubDate>
+      <a10:updated>2026-10-19T15:18:51Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/9218bee3-bbf7-411a-85b8-7ba0934d3314.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/9218bee3-bbf7-411a-85b8-7ba0934d3314.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/itthon/20261019_posfai-gabor-belugyi-dolgozok-beremeles</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">84bc7bb5-2c9a-41a3-b397-a73ca414de44</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Autó</category>
+      <category>vállalkozás</category>
+      <category>kínai autómárka</category>
+      <category>hibrid autó</category>
+      <title>Újabb kínai autómárkával bővül a magyar piac</title>
+      <description>Most vált ismerté, melyik cég fogja forgalmazni az autókat.</description>
+      <pubDate>Mon, 19 Oct 2026 15:12:27 Z</pubDate>
+      <a10:updated>2026-10-19T15:12:27Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/e1b791a6-77ea-4078-bc82-0400935b26a3.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/e1b791a6-77ea-4078-bc82-0400935b26a3.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/cegauto">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/cegauto/20261019_kinai-automarka-magyarorszag-icaur</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">51291c5c-9686-458a-895f-0f51cdfa30f7</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>politika</category>
+      <category>Gulyás Gergely</category>
+      <category>Fidesz</category>
+      <title>Gulyás Gergely állítása szerint nem lát el politikai feladatokat a Fideszben, egyelőre csak felkérést kapott</title>
+      <description>A korábbi miniszter szerint amúgy sem biztos, hogy neki már politikai pályában kell gondolkoznia.</description>
+      <pubDate>Mon, 19 Oct 2026 15:06:59 Z</pubDate>
+      <a10:updated>2026-10-19T15:06:59Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/d8cce73f-7124-4639-92f1-1fff27ccb0d4.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/d8cce73f-7124-4639-92f1-1fff27ccb0d4.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_gulyas-gergely-hatterbe-vonulas-orban-viktor-kozjogi-kabinet-fidesz-lakitelek</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">4afae725-2d87-4d02-b2ab-5032500b6364</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>zenehallgatás</category>
+      <category>videózás</category>
+      <category>tömegközlekedés</category>
+      <category>közösségi közlekedés</category>
+      <title>Röppenhet a 43 ezres bírság, ha kihangosítva hallgat zenét, néz videót a briteknél</title>
+      <description>Elegük van a brit kormányzatnak, vélhetően az emberek egy jelentős részének is azokból, akik a vonatokon és a buszokon kihangosítva néznek videót vagy hallgatnak zenét a mobiljukon.</description>
+      <pubDate>Mon, 19 Oct 2026 15:03:00 Z</pubDate>
+      <a10:updated>2026-10-19T15:03:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/90ffc132-43e4-47f6-b981-65c1f5d55b89.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/90ffc132-43e4-47f6-b981-65c1f5d55b89.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_mobilozas-zenehallgatas-video-nezes-birsag-busz-vonat</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">987f0acd-1f2c-4789-91f4-613ab60a05d8</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Élet+Stílus</category>
+      <category>egészségügy</category>
+      <category>Renner Erika</category>
+      <category>bűnügyek</category>
+      <category>lúgos orvos</category>
+      <category>trauma</category>
+      <category>nők elleni erőszak</category>
+      <title>Renner Erika: Papírom van róla, hogy nemcsak a támadó, hanem a rendszer is bántalmazott</title>
+      <description>Azért nem akarta egy orvos sem vállalni a megműtését, mert tudták, hogy egy kórházigazgató volt az elkövető – többek közt erről beszélt a 24.hu-nak adott interjúban Renner Erika, akit önkéntes tapasztalati szakértőnek kértek fel egy traumaérzékeny nőgyógyászati rendelőbe.</description>
+      <pubDate>Mon, 19 Oct 2026 15:00:45 Z</pubDate>
+      <a10:updated>2026-10-19T15:00:45Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/8c5b18fa-e99a-41c6-8fc4-dc0bdf3bd41c.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/8c5b18fa-e99a-41c6-8fc4-dc0bdf3bd41c.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/elet">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/elet/20261019_renner-erika-papir-tamado-rendszer-bantalmazas</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">d700305a-2aa5-4751-a6e5-838c541c8879</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>Budapest</category>
+      <category>költségvetés</category>
+      <category>Karácsony Gergely</category>
+      <category>Magyar Péter</category>
+      <category>önkormányzat</category>
+      <category>támogatás</category>
+      <title>Karácsony Gergely: Ez egy nagyon jó költségvetési tervezet</title>
+      <description>A főpolgármester szerint a szolidaritási hozzájárulás csökkentése és a normatív támogatás emelése jó irány.</description>
+      <pubDate>Mon, 19 Oct 2026 14:49:05 Z</pubDate>
+      <a10:updated>2026-10-19T14:49:05Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/a51393b0-20a1-499b-b35b-e442beb75ec9.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/a51393b0-20a1-499b-b35b-e442beb75ec9.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/itthon/20261019_karacsony-gergely-koltsegvetesi-tervezet</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">82cfdffe-dd10-43cb-a261-7e367340aa27</guid>
+      <author>i.keresztes@hvg.hu (Keresztes Imre)</author>
+      <category>hvg360</category>
+      <category>világ</category>
+      <category>Gadi Eisenkot</category>
+      <category>Benjamin Netanjahu</category>
+      <category>gázai háború</category>
+      <title>Plüssmaci acélgerinccel: az extábornok, aki legyőzheti Netanjahut</title>
+      <description>Eltérő személyiségével és stílusával Gadi Eisenkot, a politikában újonc egykori vezérkari főnök győzhet a veterán izraeli kormányfővel, Benjamin Netanjahuval szemben, akit Donald Trump teljes erővel támogat.</description>
+      <pubDate>Mon, 19 Oct 2026 14:39:11 Z</pubDate>
+      <a10:updated>2026-10-19T14:39:11Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/f1c6480f-311b-407c-af58-9bcb091f6c5a.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/f1c6480f-311b-407c-af58-9bcb091f6c5a.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/360">HVG</source>
+      <rank>30</rank>
+      <link>https://hvg.hu/360/20261019_hvg-kontur-gadi-eisenkot-extabornok-jasa-part-izrael-benjamin-netanjahu-valasztas-oktober-27</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">d8cb7105-81e7-4dea-92ae-0f4cfdf80fb6</guid>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (HVG)</a10:email>
+      </a10:author>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (MTI)</a10:email>
+      </a10:author>
+      <category>Élet+Stílus</category>
+      <category>politika</category>
+      <category>munkástüntetés</category>
+      <category>Genova</category>
+      <category>repülőtér</category>
+      <category>blokád</category>
+      <category>leépítés</category>
+      <category>szakszervezet</category>
+      <category>Olaszország</category>
+      <title>Videó: acélgyári munkások vették blokád alá a genovai repülőteret</title>
+      <description>A munkahelyüket féltő gyári dolgozók sisakban vonultak be a Kolumbusz Kristóf repülőtér utasfelvételi csarnokába.</description>
+      <pubDate>Mon, 19 Oct 2026 14:26:57 Z</pubDate>
+      <a10:updated>2026-10-19T14:26:57Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/d1064636-75ec-471c-a4b4-53fb74f0b9b3.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/d1064636-75ec-471c-a4b4-53fb74f0b9b3.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/elet">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/elet/20261019_acelgyar-munkas-blokad-genova-repuloter-video</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">c3662b5f-df99-4f2d-aee0-c7914d6b7d79</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Élet+Stílus</category>
+      <category>vállalkozás</category>
+      <category>Tomán Szabina</category>
+      <category>Cápák között</category>
+      <category>RTL Klub</category>
+      <category>üzlet</category>
+      <category>befektetés</category>
+      <category>bukás</category>
+      <category>Munch</category>
+      <category>csomagolásmentes bolt</category>
+      <category>cápák</category>
+      <title>Tomán Szabina 35 millió forintot bukott a Cápák között befektetésein</title>
+      <description>Az üzletasszony végig a saját pénzét kockáztatta a műsorban, és állítása szerint fizetséget sem kapott a szereplésért.</description>
+      <pubDate>Mon, 19 Oct 2026 14:21:17 Z</pubDate>
+      <a10:updated>2026-10-19T14:21:17Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/d03ef3f9-8777-44b6-a332-fa9f258d053c.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/d03ef3f9-8777-44b6-a332-fa9f258d053c.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/elet">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/elet/20261019_toman-szabina-35-millio-forint-bukas-capak-kozott-befektetes</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">47faaf05-f5fa-4931-bed8-887100ba9f3a</guid>
+      <author>szerzo@hvg.hu (hvg360)</author>
+      <category>hvg360</category>
+      <category>lapszemle</category>
+      <category>USA</category>
+      <category>liberális demokrácia</category>
+      <title>Magához tér-e Amerika? Három forgatókönyvet vázol egy vezető nélküli világnak a New York Times publicistája</title>
+      <description>A régi világrendnek vége, véli Serge Schmemann, a lap szerkesztőbizottságának tagja,  és leírja, mi következhet ezután.</description>
+      <pubDate>Mon, 19 Oct 2026 14:18:04 Z</pubDate>
+      <a10:updated>2026-10-19T14:18:04Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/51743e03-d03b-4334-8ab6-9bb71f4edc88.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/51743e03-d03b-4334-8ab6-9bb71f4edc88.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/360">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/360/20261019_lapszemle-new-york-times-usa-serge-schmemann</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">737af0d9-2dc1-4a5c-8895-42d680a3b21c</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Sport</category>
+      <category>foci</category>
+      <category>Szoboszlai Dominik</category>
+      <category>Liverpool</category>
+      <category>sérülés</category>
+      <category>magyar labdarúgó-válogatott</category>
+      <title>Szoboszlai sérülése – a Liverpool edzője szerint türelmesebbnek kell lenniük</title>
+      <description>Kérdés, hogy a következő válogatott meccsre felépül-e Szoboszlai.</description>
+      <pubDate>Mon, 19 Oct 2026 14:16:33 Z</pubDate>
+      <a10:updated>2026-10-19T14:16:33Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/9a63b9ff-c9d5-4553-93e8-ac27a746faf7.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/9a63b9ff-c9d5-4553-93e8-ac27a746faf7.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/sport">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/sport/20261019_szoboszlai-dominik-serules-liverpool-visszateres</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">4a15f745-88c3-4863-a809-82aee88f7043</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Élet+Stílus</category>
+      <category>kultúra</category>
+      <category>Selena Gomez</category>
+      <category>élet</category>
+      <category>sztár</category>
+      <category>dohányzás</category>
+      <title>„Nem éri meg” – Selena Gomez az e-cigaretta hátrányairól beszélt</title>
+      <description>Az énekesnőnek nehezen megy a leszokás, de kitart a döntése mellett. </description>
+      <pubDate>Mon, 19 Oct 2026 14:10:34 Z</pubDate>
+      <a10:updated>2026-10-19T14:10:34Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/6566ff90-4c60-45d6-9925-31edb1f06f13.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/6566ff90-4c60-45d6-9925-31edb1f06f13.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/elet">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/elet/20261019_selena-gomez-e-cigaretta-vape-hang-enekes</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">22d43a85-816d-43f8-8ca7-fa9b72986132</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>Google</category>
+      <category>YouTube</category>
+      <category>youtube music</category>
+      <category>mesterséges intelligencia</category>
+      <category>zenék</category>
+      <title>Új jelölést kap a YouTube, fontos dologra hívja fel a figyelmet</title>
+      <description>Immáron a YouTube Music is felhívja a felhasználók figyelmét a mesterséges intelligenciával generált dalokra.</description>
+      <pubDate>Mon, 19 Oct 2026 14:08:33 Z</pubDate>
+      <a10:updated>2026-10-19T14:08:33Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/23c49c15-5063-40bd-9c50-3bfd9df8f137.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/23c49c15-5063-40bd-9c50-3bfd9df8f137.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_google-youtube-mesterseges-intelligencia-zene-hasznalata</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">b3afc42e-21ab-44ac-a914-d0b50dbd0e09</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Gazdaság</category>
+      <category>gazdaságpolitika</category>
+      <category>Magyar Péter</category>
+      <category>költségvetés</category>
+      <category>szja</category>
+      <category>reklámadó</category>
+      <category>Wekerle-terv</category>
+      <category>árrésstop</category>
+      <category>GDP</category>
+      <title>Szja-csökkentés, dupla családi pótlék, vagyonadó és a Ne Lopj! – Itt vannak a jövő évi költségvetés tervei</title>
+      <description>Béremelésekről, szja-csökkentésről, a családi pótlék megduplázásáról és egyes adók növeléséről beszélt hétfőn Magyar Péter a napirend előtti felszólalásában az Országgyűlésben. </description>
+      <pubDate>Mon, 19 Oct 2026 14:06:18 Z</pubDate>
+      <a10:updated>2026-10-19T14:06:18Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/957a7e9a-217f-408d-93fb-5eb972ca38c6.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/957a7e9a-217f-408d-93fb-5eb972ca38c6.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/gazdasag">HVG</source>
+      <rank>40</rank>
+      <link>https://hvg.hu/gazdasag/20261019_szja-csokkentes-dupla-csaladi-potlek-vagyonado-ne-lopj-koltsegvetes-tervek</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">0144b23f-268e-408c-b15c-d31f87a27fb1</guid>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (HVG)</a10:email>
+      </a10:author>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (Arató László (Eurologus))</a10:email>
+      </a10:author>
+      <category>EUrologus</category>
+      <category>Európai Unió</category>
+      <category>Andorra</category>
+      <category>San Marino</category>
+      <category>Európai Bizottság</category>
+      <title>Majdnem tagok: új szakasz kezdődik Andorra és San Marino uniós integrációjában</title>
+      <description>Az Európai Unió aláírta a társulási megállapodást Andorrával és San Marinóval, amely a két kisállam számára az uniós belső piachoz való, a norvég, izlandi és liechtensteini modellhez hasonló hozzáférést irányoz elő. A megállapodás nem jelent EU-tagságot, de jelentősen elmélyíti a gazdasági és intézményi kapcsolatokat. Andorrában népszavazás is dönthet a megállapodás sorsáról.</description>
+      <pubDate>Mon, 19 Oct 2026 14:03:57 Z</pubDate>
+      <a10:updated>2026-10-19T14:03:57Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/7003a007-8ec9-4b46-a671-22f867510ffd.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/7003a007-8ec9-4b46-a671-22f867510ffd.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/eurologus">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/eurologus/20261019_andorra-san-marino-eu-integracio-europai-bizottsag</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">e49aa55e-655a-413f-8e59-3e98795abdc2</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>tudomány</category>
+      <category>aHang</category>
+      <category>Nézőpont</category>
+      <category>Századvég</category>
+      <category>KSH</category>
+      <category>MCC</category>
+      <title>Felkérdezték az MTA-t, miért jelölt Fidesz közeli kutatókat a KSH tanácsába, Pósfai Mihály odakommentelte, hogy ők sem tudtak erről</title>
+      <description>Pillók Péter és Székely Levente is részt vett azokban az ifjúságkutatásokban, amelyek 2024 óta elérhetetlenek. </description>
+      <pubDate>Mon, 19 Oct 2026 13:46:04 Z</pubDate>
+      <a10:updated>2026-10-19T13:46:04Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/7f1cd87c-1ac1-4b5b-b2a8-4bc964b3bf6c.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/7f1cd87c-1ac1-4b5b-b2a8-4bc964b3bf6c.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_mcc-szazadveg-mta-hun-ren-ifjusagkutatas-elerhetetlen-adatok</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">4c414433-e5ac-417b-9989-b6b69e60a331</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Élet+Stílus</category>
+      <category>sport</category>
+      <category>Gael Monfils</category>
+      <category>Elina Szvitolina</category>
+      <category>tenisz</category>
+      <category>házasság</category>
+      <category>válás</category>
+      <category>sztárpár</category>
+      <category>Ukrajna</category>
+      <category>orosz-ukrán háború</category>
+      <title>Véget ért Gaël Monfils és Jelina Szvitolina házassága</title>
+      <description>A teniszvilág sztárpárjának házassága öt évig tartott.</description>
+      <pubDate>Mon, 19 Oct 2026 13:20:11 Z</pubDate>
+      <a10:updated>2026-10-19T13:20:11Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/2f78a266-f5c3-4a14-8ae4-792c85f53c1c.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/2f78a266-f5c3-4a14-8ae4-792c85f53c1c.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/elet">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/elet/20261019_gael-monfils-jelina-szvitolina-hazassag-valas-tenisz</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">09a97e53-6be3-441f-8eab-0f9efee1ee19</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>Burger King</category>
+      <category>hackertámadás</category>
+      <category>adatszivárgás</category>
+      <title>Betörtek a japán Burger Kinghez, hamburger helyett a vásárlók adatait vitték</title>
+      <description>Több mint 11 millió felhasználó adatai szivárogtak ki a japán Burger Kingtől.</description>
+      <pubDate>Mon, 19 Oct 2026 13:03:00 Z</pubDate>
+      <a10:updated>2026-10-19T13:03:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/0d270a83-733a-463a-9a18-cfe92da90ef5.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/0d270a83-733a-463a-9a18-cfe92da90ef5.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_burger-king-japan-adatszivargas-hackertamadas</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">8bf2135a-85c6-4350-977a-ea1aabad7797</guid>
+      <author>szerzo@hvg.hu (MTI)</author>
+      <category>Vállalkozás</category>
+      <category>világ</category>
+      <category>Egyesült Államok</category>
+      <category>Elon Musk</category>
+      <category>SpaceX</category>
+      <category>tőzsde</category>
+      <category>részvény</category>
+      <title>Elon Musk minden 18 évesnél fiatalabb amerikainak adna egy SpaceX-részvényt</title>
+      <description>Az Egyesült Államokban most több mint 70 millió fiatal él, így ez egy több mint 10 milliárd dolláros csomag lenne.</description>
+      <pubDate>Mon, 19 Oct 2026 12:56:21 Z</pubDate>
+      <a10:updated>2026-10-19T12:56:21Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/bd6e4834-d43e-4390-b373-bba4c7ad3c99.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/bd6e4834-d43e-4390-b373-bba4c7ad3c99.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/kkv">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/kkv/20261019_elon-musk-amerikai-gyerekek-spacex-reszveny-ingyen</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">1427bb0e-5617-46b7-9bc6-0d8ba3387d3f</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Vállalkozás</category>
+      <category>itthon</category>
+      <category>Mirkóczki Ádám</category>
+      <category>Eger</category>
+      <category>tartozás</category>
+      <category>bérleti díj</category>
+      <category>polgármester</category>
+      <title>„A törvények betartásával nem lehet üzemeltetni a vállalkozást” – 16 millió forinttal tartozik a volt polgármester cége Egernek</title>
+      <description>Mirkóczki Ádám fizetési felszólítást kapott az önkormányzattól az elmaradt bérleti díj miatt.</description>
+      <pubDate>Mon, 19 Oct 2026 12:52:09 Z</pubDate>
+      <a10:updated>2026-10-19T12:52:09Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/b8127f02-6fc1-4b9a-b906-1078e91372ba.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/b8127f02-6fc1-4b9a-b906-1078e91372ba.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/kkv">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/kkv/20261019_mirkoczki-adam-tartozas-senator-haz-eger</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">8f0dfa53-b830-4a4b-84b1-0221ebe5542a</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>politika</category>
+      <category>Országgyűlés</category>
+      <category>Szabó Bálint</category>
+      <category>Pócs János</category>
+      <category>vendég</category>
+      <title>Pócs János vendégeként ült be a parlamentbe a trombitáló Szabó Bálint</title>
+      <description>Út a börtönből a parlamentbe – írta Szabó Bálint arról, hogy Pócs János segítségével bejutott az Országházba.</description>
+      <pubDate>Mon, 19 Oct 2026 12:45:59 Z</pubDate>
+      <a10:updated>2026-10-19T12:45:59Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/96593cd3-5549-4c22-bd01-847b0ca43546.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/96593cd3-5549-4c22-bd01-847b0ca43546.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_pocs-janos-vendeg-beul-parlament-szabo-balint</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">98ecd61b-18c8-4162-b170-a4477c5b626c</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>belpolitika</category>
+      <category>Forsthoffer Ágnes</category>
+      <category>vagyonnyilatkozat</category>
+      <title>Forsthoffer Ágnes „nagyon részletes kiegészítést” tett a vagyonnyilatkozatában</title>
+      <description>Mindezt azután, hogy a fideszes Hidvéghi Balázs vagyonnyilatkozati eljárás megindítását kezdeményezte vele szemben.</description>
+      <pubDate>Mon, 19 Oct 2026 12:43:04 Z</pubDate>
+      <a10:updated>2026-10-19T12:43:04Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/b9ac4029-6898-4886-a4a1-544100f79dc3.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/b9ac4029-6898-4886-a4a1-544100f79dc3.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_forsthoffer-agnes-vagyonnyilatkozat-nagyon-reszletes-kiegeszites</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">68ba9ee7-0a10-4364-9571-64217bb06e02</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Gazdaság</category>
+      <category>itthon</category>
+      <category>Tudományos és Technológiai Minisztérium</category>
+      <category>Bódis László</category>
+      <title>Kiteszik Bódis László volt helyettes államtitkárt a Nemzeti Innovációs Ügynökség éléről</title>
+      <description>Utódját pályázattal választják ki.
+</description>
+      <pubDate>Mon, 19 Oct 2026 12:19:33 Z</pubDate>
+      <a10:updated>2026-10-19T12:19:33Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/93a6f44c-912f-4737-aa13-aee21ba370a1.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/93a6f44c-912f-4737-aa13-aee21ba370a1.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/gazdasag">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/gazdasag/20261019_bodis-laszlo-nemzeti-innovacios-ugynokseg-tavozas</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">fad7fefe-90b1-4b7e-8027-443312d9cc9d</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>Apple</category>
+      <category>iPhone</category>
+      <category>iPhone Duo</category>
+      <category>okostelefon</category>
+      <title>Kiderült, amit eddig titkolt az Apple: ekkora akkumulátor került az iPhone Duóba</title>
+      <description>Az Apple egy EU-s szabályozás miatt kénytelen volt közzétenni a webshopjában, mekkora akkumulátorral szerelte fel az iPhone Duót.</description>
+      <pubDate>Mon, 19 Oct 2026 12:03:00 Z</pubDate>
+      <a10:updated>2026-10-19T12:03:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/c62eb92f-a47d-40a0-9a29-68cef57dccfb.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/c62eb92f-a47d-40a0-9a29-68cef57dccfb.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_apple-iphone-duo-akkumulator-merete</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">e5c1837c-2b1a-452a-8620-d41140b0ef2b</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Élet+Stílus</category>
+      <category>hírességek</category>
+      <category>Cindy Crawford</category>
+      <category>Kaia Gerber</category>
+      <category>modell</category>
+      <category>drogtúladagolás</category>
+      <category>gyász</category>
+      <title>„Mérhetetlenül össze vagyunk törve” – Cindy Crawford megszólalt fia halála után</title>
+      <description>A modell fia, Presley Gerber egy hónappal ezelőtt, 27 éves korában hunyt el.</description>
+      <pubDate>Mon, 19 Oct 2026 12:01:39 Z</pubDate>
+      <a10:updated>2026-10-19T12:01:39Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/590c3732-228d-4148-9d74-21d54fa3caba.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/590c3732-228d-4148-9d74-21d54fa3caba.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/elet">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/elet/20261019_cindy-crawford-kaia-gerber-bucsu-gyermeke-fia-presley-gerber-halal</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">b265b1ab-913d-4371-b1dc-7f4e33f4afd2</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Autó</category>
+      <category>baleset</category>
+      <category>M4-es autópálya</category>
+      <category>magyar autós videó</category>
+      <title>Hatalmasat csattant egy autó az M4-esen, a másik sofőr egy ideig nézte, majd elhajtott</title>
+      <description>Alapvetően ilyenkor nem az számít, ki hibázott, segíteni kell a másik autósnak.</description>
+      <pubDate>Mon, 19 Oct 2026 11:56:24 Z</pubDate>
+      <a10:updated>2026-10-19T11:56:24Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/1d7ca3a0-3c03-45d2-806a-8ae188f23156.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/1d7ca3a0-3c03-45d2-806a-8ae188f23156.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/cegauto">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/cegauto/20261019_m4-autout-baleset-szalagkorlat-masik-autos-tovabbhajtott</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">fd74daea-3586-4a2d-9db1-233d81ac3838</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Világ</category>
+      <category>utazás</category>
+      <category>Lengyelország</category>
+      <category>hegymászás</category>
+      <title>Egy nő magukra hagyta kiskorú gyerekeit a Besszádok-hegységben, mert „nyafogtak”</title>
+      <description>A túrázók szerint, akik megtalálták a gyerekeket, a sűrű köd miatt kiemelten veszélyes volt különválni.</description>
+      <pubDate>Mon, 19 Oct 2026 11:31:46 Z</pubDate>
+      <a10:updated>2026-10-19T11:31:46Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/c1fbd912-5d03-47cd-85c7-b9c8a34cd3a3.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/c1fbd912-5d03-47cd-85c7-b9c8a34cd3a3.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/vilag">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/vilag/20261019_hegymaszas-besszadok-gyerekek-magukra-hagyas-hegymaszok-turazok</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">cafe622f-f477-4b2a-8585-a494e20a25d8</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Világ</category>
+      <category>politika</category>
+      <category>Emmanuel Macron</category>
+      <category>október 23.</category>
+      <category>állami ünnepség</category>
+      <title>Mégsem jön Macron az október 23-i állami ünnepségre</title>
+      <description>Magyar Péter korábban bejelentette a francia elnököt, azonban úgy tűnik, változott a terv.</description>
+      <pubDate>Mon, 19 Oct 2026 11:26:46 Z</pubDate>
+      <a10:updated>2026-10-19T11:26:46Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/923143f5-4880-400e-a61a-0041dc5034c3.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/923143f5-4880-400e-a61a-0041dc5034c3.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/vilag">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/vilag/20261019_emmanuel-macron-oktober-23-allami-unnepseg-nem-jon</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">38ee5172-2e10-4510-a9db-58b34427834a</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Vállalkozás</category>
+      <category>gazdaság</category>
+      <category>CATL</category>
+      <category>akkumulátor</category>
+      <category>akkumulátorgyár</category>
+      <category>állami támogatás</category>
+      <title>129 milliárdos támogatást kaphat a debreceni CATL</title>
+      <description>A Népszabadság megszerezte az Orbán-kormány által 2025-ben kötött szerződésüket.</description>
+      <pubDate>Mon, 19 Oct 2026 11:24:32 Z</pubDate>
+      <a10:updated>2026-10-19T11:24:32Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/28f11fbd-1ef2-469e-b476-ccf116d4f322.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/28f11fbd-1ef2-469e-b476-ccf116d4f322.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/kkv">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/kkv/20261019_catl-debrecen-allami-tamogatas-szerzodes</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">41516953-2ef4-4993-a604-052a39dfdcbd</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Gazdaság</category>
+      <category>gazdaságpolitika</category>
+      <category>költségvetés</category>
+      <category>Országgyűlés</category>
+      <title>Kétmillió ember szja-ja fog csökkenni – Magyar Péter bemutatta a jövő évi költségvetést a parlamentben, az ellenzék egyesével ment neki </title>
+      <description>A miniszterelnök vázolta, mi várható jövőre. </description>
+      <pubDate>Mon, 19 Oct 2026 11:13:17 Z</pubDate>
+      <a10:updated>2026-10-19T11:13:17Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/759f33ba-8af4-4980-bfba-7590d130d09b.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/759f33ba-8af4-4980-bfba-7590d130d09b.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/gazdasag">HVG</source>
+      <rank>30</rank>
+      <link>https://hvg.hu/gazdasag/20261019_orszaggyules-oktober-19-hetfo-potkoltsegvetes-koltsegvetes-magyar-peter-alapok</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">aeefb144-1986-4989-b226-680cf0c44542</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>belpolitika</category>
+      <category>Ókovács Szilveszter</category>
+      <category>Operaház</category>
+      <title>Ókovács Szilveszter: Magyar Péterékkel régen összejártunk, tőlük kaptuk el a Covidot is</title>
+      <description>Nem fél az őrizetbe vételtől, sem a leváltástól a kormányzati átvilágítással érintett Operaház főigazgatója. Ókovács Szilveszter szerint nem pályáztak sem az NKA-hoz, sem Balásy-cégekkel nem szerződtek. Beszélt a Magyar Péterrel való viszonyáról, hogy miért nem engedte fellépni Mága Zoltánt, és megerősítette: 2028-ban újra pályázik.</description>
+      <pubDate>Mon, 19 Oct 2026 11:11:06 Z</pubDate>
+      <a10:updated>2026-10-19T11:11:06Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/0b98d549-cfb9-4381-a212-c65bbc41384c.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/0b98d549-cfb9-4381-a212-c65bbc41384c.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/itthon/20261019_okovacs-szilveszter-interju-operahaz-magyar-peter</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">77f428c5-4845-49c1-af36-b71c1c1ae7b7</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>mesterséges intelligencia</category>
+      <category>biztonsági kockázat</category>
+      <category>Anthropic</category>
+      <category>szabályozás</category>
+      <title>50 ember halála, 1 milliárdos kár: itt húznák meg a mesterséges intelligencia határait</title>
+      <description>Az Anthropic egy olyan javaslatcsomagot tett le az amerikai törvényhozók asztalára, ami segíthet biztonságosabbá tenni a mesterséges intelligenciát.</description>
+      <pubDate>Mon, 19 Oct 2026 11:03:00 Z</pubDate>
+      <a10:updated>2026-10-19T11:03:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/87be8626-b521-4d5c-9410-7b7865d6ee4f.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/87be8626-b521-4d5c-9410-7b7865d6ee4f.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_anthropic-mesterseges-intelligencia-szabalyozasa</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">eaadd724-8816-4b3a-bdc6-d132e4dea919</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Sport</category>
+      <category>foci</category>
+      <category>Marco Rossi</category>
+      <category>magyar labdarúgó-válogatott</category>
+      <category>Nemzetek Ligája</category>
+      <title>Marco Rossi: Biztos az a legjobb, ha visszajutunk az A-ligába?</title>
+      <description>A szövetségi kapitány a válogatott négy Nemzetek Ligája-mérkőzése után értékelt.</description>
+      <pubDate>Mon, 19 Oct 2026 10:39:03 Z</pubDate>
+      <a10:updated>2026-10-19T10:39:03Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/24902955-1b9d-4473-84cc-ae34fc57d800.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/24902955-1b9d-4473-84cc-ae34fc57d800.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/sport">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/sport/20261019_labdarugas-magyar-valogatott-nemzetek-ligaja-marco-rossi-interju</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">84de954c-f2f7-4ea6-8ea9-285dfa150fe7</guid>
+      <author>szerzo@hvg.hu (EUrologus)</author>
+      <category>EUrologus</category>
+      <category>Európai Unió</category>
+      <category>október 23.</category>
+      <category>Ursula von der Leyen</category>
+      <title>Október 23-án Ursula von der Leyen is beszédet mond Budapesten</title>
+      <description>Az Európai Bizottság elnöke is részt vesz október 23-án Budapesten az ’56-os forradalom 70. évfordulójának tiszteletére rendezett megemlékezésen.</description>
+      <pubDate>Mon, 19 Oct 2026 10:30:25 Z</pubDate>
+      <a10:updated>2026-10-19T10:30:25Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/2f3a385f-877b-42f9-97ef-5e13c7e54e57.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/2f3a385f-877b-42f9-97ef-5e13c7e54e57.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/eurologus">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/eurologus/20261019_oktober-23-von-der-leyen-magyar-peter</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">83457840-d406-42f6-ba55-83b6352745bc</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Élet+Stílus</category>
+      <category>hírességek</category>
+      <category>Palvin Barbara</category>
+      <category>Victoria's Secret</category>
+      <category>divatbemutató</category>
+      <category>fehérnemű</category>
+      <category>szülés</category>
+      <category>modell</category>
+      <category>magyar modell</category>
+      <category>kifutó</category>
+      <title>Így vonult a kifutón Palvin Barbara szülése után 6 héttel – videó</title>
+      <description>A magyar modell a Victoria's Secret fehérneműmárka állandó arcaként nem hagyta ki az idei bemutatót, annak ellenére sem, hogy szeptemberben szült.</description>
+      <pubDate>Mon, 19 Oct 2026 10:28:15 Z</pubDate>
+      <a10:updated>2026-10-19T10:28:15Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/77ad4481-9d31-4c30-b083-317d0aa38a33.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/77ad4481-9d31-4c30-b083-317d0aa38a33.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/elet">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/elet/20261019_palvin-barbara-szules-victoria-s-secret-divatbemutato-kifuto-video</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">9651a39e-c4de-4bf3-8457-963be6d69c2c</guid>
+      <author>szerzo@hvg.hu (Kovács Gábor)</author>
+      <category>Vállalkozás</category>
+      <category>gazdaság</category>
+      <category>vagyonadó</category>
+      <category>Adótanácsadók Egyesülete</category>
+      <category>visszamenőleges hatály</category>
+      <title>Adótanácsadók: A vagyonadó tervezete sérti a visszamenőleges jogalkotás tilalmát </title>
+      <description>Számos problémát talált a vagyonadó tervezetében az Adótanácsadók Egyesülete. A szabályozás visszamenőleges hatályú, mert a vagyonadó bevezetésének „köztudomásúvá válásától” szankcionál bizonyos tranzakciókat. Több ponton aggályos a külföldiek és a külföldi ingatlanok adóztatása, a luxus „használati tárgyak” kihagyása, a gyerekek vagyonának elszámolása. </description>
+      <pubDate>Mon, 19 Oct 2026 10:23:23 Z</pubDate>
+      <a10:updated>2026-10-19T10:23:23Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/40c972fc-5ef1-41ee-871b-5735167533f3.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/40c972fc-5ef1-41ee-871b-5735167533f3.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/kkv">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/kkv/20261019_adotanacsadok-egyesulete-vagyonado-kritikak</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">90d47bc2-e4c8-4f90-9826-00057413eece</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Autó</category>
+      <category>sport</category>
+      <category>Molnár Martin</category>
+      <category>autóverseny</category>
+      <category>formula autó</category>
+      <category>Formula 3</category>
+      <category>Forma-3</category>
+      <title>Nívós olasz csapatban bizonyíthat Molnár Martin, a legígéretesebbnek tartott magyar autóversenyző</title>
+      <description>Molnár egy olyan junior csapat színeiben tesztel, amelyben korábban Charles Leclerc, Pierre Gasly és Andrea Kimi Antonelli is versenyzett.</description>
+      <pubDate>Mon, 19 Oct 2026 10:05:28 Z</pubDate>
+      <a10:updated>2026-10-19T10:05:28Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/731d2b1e-f7b0-423f-8757-3471dde329f5.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/731d2b1e-f7b0-423f-8757-3471dde329f5.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/cegauto">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/cegauto/20261019_molnar-martin-forma-3-teszt-prema-racing</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">99833687-2e20-47fd-a05e-7754ce79d7d8</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>Google</category>
+      <category>Android</category>
+      <category>csalás</category>
+      <category>Play áruház</category>
+      <category>Google Play áruház</category>
+      <category>WhatsApp</category>
+      <category>Google Chrome</category>
+      <title>Gyorsan terjed az újfajta csalás, már legalább 500 000 ember dőlt be neki</title>
+      <description>Úgy tűnik, pofonegyszerűen mennek át az androidos Play Áruház szűrőin a legpofátlanabb átverések is: a Google Chrome és a WhatsApp nevével és logójával is visszaéltek a csalók.</description>
+      <pubDate>Mon, 19 Oct 2026 10:03:00 Z</pubDate>
+      <a10:updated>2026-10-19T10:03:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/78d3a8c2-5528-4022-b809-8b67898d943f.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/78d3a8c2-5528-4022-b809-8b67898d943f.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_google-play-aruhaz-csalo-alkalmazasok-google-chrome-whatsapp</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">ab054943-26da-4cc3-89f1-7f653f4013f5</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>politika</category>
+      <category>Élő Környezetért Felelős Minisztérium</category>
+      <category>Tisza Párt</category>
+      <category>vadászat</category>
+      <category>Bujdosó Andrea</category>
+      <title>Kaprinyák Tibor távozik az Élő Környezetért Felelős Bizottságból</title>
+      <description>Később döntik el, melyik bizottságban folytatja a képviselő.</description>
+      <pubDate>Mon, 19 Oct 2026 09:59:25 Z</pubDate>
+      <a10:updated>2026-10-19T09:59:25Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/3af733f8-6c31-4e93-af0e-7b8283e228cd.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/3af733f8-6c31-4e93-af0e-7b8283e228cd.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/itthon/20261019_kaprinyak-tibor-tavozik-elo-kornyezetert-felelos-bizottsag-tisza-bujdoso-frakcio</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">2e3b2487-2a80-418e-96fb-4d8489e6ea75</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Autó</category>
+      <category>gazdaság</category>
+      <category>tankolás</category>
+      <category>üzemanyagárak</category>
+      <category>benzinár</category>
+      <category>dízelár</category>
+      <title>Mégsem fagyott be teljesen a magyar üzemanyagpiac, hétfőn változott az ár</title>
+      <description>Néhány forintos a mozgás. </description>
+      <pubDate>Mon, 19 Oct 2026 09:47:31 Z</pubDate>
+      <a10:updated>2026-10-19T09:47:31Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/9cf968c1-fa20-450a-8811-49886ac2f8b1.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/9cf968c1-fa20-450a-8811-49886ac2f8b1.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/cegauto">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/cegauto/20261019_uzemanyagarak-valtozas-benzin-gazolaj-oktober</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">a5433378-5961-40b6-b5f6-330af042a3f1</guid>
+      <author>szerzo@hvg.hu (hvg360)</author>
+      <category>hvg360</category>
+      <category>lapszemle</category>
+      <category>Franciaország</category>
+      <category>USA</category>
+      <category>kleptokrácia</category>
+      <category>Oroszország</category>
+      <category>Kína</category>
+      <title>Telegraph-kommentár: Putyin azért tudja felforgatni a világot, mert a Nyugat idegösszeomlást kapott</title>
+      <description>Lesújtó a politika reakciója a francia zavargásokra. A kleptokraták kezdik eluralni a világot, mindenütt foglyul ejtik az államot. Európának lépnie kell, mert Trump szemet vetett a Belgium területén zárolt több százmilliárd eurós orosz állami követelésre. Megrázkódtatás fenyegeti az európai gazdaságokat, ha nem tesznek valamit Kína nyomulása ellen. Témák és vélemények a világsajtóból.</description>
+      <pubDate>Mon, 19 Oct 2026 09:43:52 Z</pubDate>
+      <a10:updated>2026-10-19T09:43:52Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/18dfa6dd-cb51-4aaa-b32b-5f973dccd317.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/18dfa6dd-cb51-4aaa-b32b-5f973dccd317.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/360">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/360/20261019_lapszemle-trump-putyin-usa-kina-oroszorszag-franciaorszag</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">233cabfa-6314-4402-b37d-1a476fe5465a</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>belpolitika</category>
+      <category>Sándor Fegyir</category>
+      <category>Ukrajna</category>
+      <category>nagykövet</category>
+      <title>Sándor Fegyir nem bontott pezsgőt április 12-én, és úgy látja, Oroszország agóniája megkezdődött</title>
+      <description>Ukrajna budapesti nagykövete szerint miután a napokban elfogadta az ukrán parlament a magyar kisebbségek nyelvhasználatát kiszélesítő törvényt, még további hat rendezendő pont maradt, ezek nagy részét Ukrajna jövő év májusának végéig teljesíti.</description>
+      <pubDate>Mon, 19 Oct 2026 09:38:42 Z</pubDate>
+      <a10:updated>2026-10-19T09:38:42Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/37ac8177-f3a0-4689-ba97-ee7e4a5ee5bf.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/37ac8177-f3a0-4689-ba97-ee7e4a5ee5bf.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_sandor-fegyir-interju-magyar-kisebbseg-oroszorszag-haboru</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">ab4651c6-5251-4237-a2c0-bc2876f7ddf9</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Gazdaság</category>
+      <category>bűnügyek</category>
+      <category>Fekete Antal</category>
+      <category>Volánbusz-ügy</category>
+      <title>Három év börtönbüntetésre ítélték a Volánbusz korábbi vezérigazgatóját</title>
+      <description>Fekete Antal korábban többször is próbálkozott vagyonkimenekítéssel és ingatlanjainak eladásával.</description>
+      <pubDate>Mon, 19 Oct 2026 09:30:12 Z</pubDate>
+      <a10:updated>2026-10-19T09:30:12Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/d4e74c54-52fd-48a4-ad7c-1c2fdbc4b0df.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/d4e74c54-52fd-48a4-ad7c-1c2fdbc4b0df.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/gazdasag">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/gazdasag/20261019_volanbusz-zrt-vezerigazgato-fekete-antal-bortonbuntetes</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">4791dca1-c26e-4a6e-8636-aa15f3755221</guid>
+      <author>a.gyenis@hvg.hu (Gyenis Ágnes)</author>
+      <category>hvg360</category>
+      <category>közpénz</category>
+      <category>Kecskemét</category>
+      <category>Pallas Athéné Alapítvány</category>
+      <category>Optima Zrt.</category>
+      <category>kemping</category>
+      <title>Pénz helyett nudistakempinget kaphat Kecskemét az MNB-botrány tartozásai miatt</title>
+      <description>Bő kétmilliárd forint kamattartozása van a jegybanki Pallas Athéné alapítvány vagyonkezelőjének a kecskeméti egyetem fenntartója, a Neumann János Egyetemi Alapítvány felé – a fizetés az oktatási tárca döntésétől függhet.</description>
+      <pubDate>Mon, 19 Oct 2026 09:30:00 Z</pubDate>
+      <a10:updated>2026-10-19T09:30:00Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/175e4280-4e20-491e-9cd4-08b730dd8893.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/175e4280-4e20-491e-9cd4-08b730dd8893.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/360">HVG</source>
+      <rank>40</rank>
+      <link>https://hvg.hu/360/20261019_optima-kecskemet-pallas-athene-alapitvany-csod</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">094d1002-e73d-48c5-a771-b541b6e380cd</guid>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (HVG)</a10:email>
+      </a10:author>
+      <a10:author>
+        <a10:email>szerzo@hvg.hu (MTI)</a10:email>
+      </a10:author>
+      <category>Kult</category>
+      <category>irodalom</category>
+      <category>aukció</category>
+      <category>árverés</category>
+      <category>József Attila</category>
+      <category>Radnóti Sándor</category>
+      <category>magyar irodalom</category>
+      <category>antikvárium</category>
+      <category>licit</category>
+      <title>Több mint másfél millióért kelt el egy József Attila-verseskötet</title>
+      <description>Más irodalmi ritkaságok, köztük egy dedikált Radnóti-kötet is egymillió forint felett talált gazdára egy árverésen.</description>
+      <pubDate>Mon, 19 Oct 2026 09:15:59 Z</pubDate>
+      <a10:updated>2026-10-19T09:15:59Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/5f51265c-dead-4ca7-919f-0757a2abb54d.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/5f51265c-dead-4ca7-919f-0757a2abb54d.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/kultura">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/kultura/20261019_jozsef-attila-radnoti-verseskotet</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">ef6490ea-0d1b-4a56-a1c1-bc572eae5c9e</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>oktatás</category>
+      <category>bombafenyegetés</category>
+      <category>bombariadó</category>
+      <category>bűnügyek</category>
+      <title>Több mint hetven iskolában volt bombariadó hétfő reggel, terrorcselekménnyel fenyegetés miatt indított eljárást az NNI</title>
+      <description>A rendőrök kora délutánig  egyik iskolában sem találtak robbanószert, vagy robbantásra alkalmas eszközt.</description>
+      <pubDate>Mon, 19 Oct 2026 09:08:30 Z</pubDate>
+      <a10:updated>2026-10-19T09:08:30Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/ab2e18ed-eebe-42cd-b435-3a2054281318.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/ab2e18ed-eebe-42cd-b435-3a2054281318.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/itthon/20261019_oktatas-iskolak-bombafenyegetes-bombariado</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">98685c1d-7702-417a-8233-d325071cc0e5</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Tech</category>
+      <category>tech</category>
+      <category>hackertámadás</category>
+      <category>orosz hacker</category>
+      <category>letartóztatás</category>
+      <title>Letartóztatták az orosz hackert, aki miatt meghalt egy beteg a kórházban</title>
+      <description>Egy beteg halálával járt a Qilin nevű hackercsoport 2024-es támadása, amely megbénított számos londoni kórházat.</description>
+      <pubDate>Mon, 19 Oct 2026 09:05:45 Z</pubDate>
+      <a10:updated>2026-10-19T09:05:45Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/abb85497-e1c1-478d-8234-3ba11852d8d4.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/abb85497-e1c1-478d-8234-3ba11852d8d4.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/tudomany">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/tudomany/20261019_london-korhazak-hackertamadas-halal-orosz-hacker-letartoztatas</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">63f6c228-7ca9-41cc-a0ab-dbb6b647a7f4</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>egészségügy</category>
+      <category>Országos Kórházi Főigazgatóság</category>
+      <category>meddőségi klinika</category>
+      <category>fejlesztés</category>
+      <title>1,63 milliárd forintból fejlesztik a meddőségi klinikákat</title>
+      <description>Az összegből 157 eszközt vásárolnak tizenhárom helyszínre.</description>
+      <pubDate>Mon, 19 Oct 2026 08:55:13 Z</pubDate>
+      <a10:updated>2026-10-19T08:55:13Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/758053c3-dab6-4894-bf4e-09d42fd4602e.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/758053c3-dab6-4894-bf4e-09d42fd4602e.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_orszagos-korhazi-foigazgatosag-meddosegi-klinika-lombikintezet-fejlesztes</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">e3fc698c-46a4-49fa-b6b8-60053e7762ea</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Itthon</category>
+      <category>belpolitika</category>
+      <category>Török Gábor</category>
+      <category>Baka András</category>
+      <category>köztársasági elnök</category>
+      <title>Török Gábor szembesítette Baka Andrást 2011-gyel, amikor még jogellenesnek tartotta a saját, erővel történő fideszes elmozdítását</title>
+      <description>A politológus a kritika mellett egy érdekes igényt is megfogalmazott.</description>
+      <pubDate>Mon, 19 Oct 2026 08:50:46 Z</pubDate>
+      <a10:updated>2026-10-19T08:50:46Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/18b20bc1-30ba-4462-bd5e-b5d846290810.jpg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/18b20bc1-30ba-4462-bd5e-b5d846290810.jpg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/itthon">HVG</source>
+      <rank>70</rank>
+      <link>https://hvg.hu/itthon/20261019_torok-gabor-szembesites-baka-andras</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">6e1d712e-ef9c-4a39-9c8c-6fe44c7863f1</guid>
+      <author>szerzo@hvg.hu (HVG)</author>
+      <category>Vállalkozás</category>
+      <category>bűnügyek</category>
+      <category>Gazdasági Versenyhivatal (GVH)</category>
+      <category>napelem</category>
+      <category>kartell</category>
+      <title>Napelemmel kartelleztek, lecsapott rájuk a GVH</title>
+      <description>Öt cég játszott össze egy tanyasi fejlesztési pályázaton.</description>
+      <pubDate>Mon, 19 Oct 2026 08:38:37 Z</pubDate>
+      <a10:updated>2026-10-19T08:38:37Z</a10:updated>
+      <media:content url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/6da7e4e5-224b-4eb0-963a-4f990bf5b9ea.jpeg" medium="image" />
+      <enclosure url="https://img.hvg.hu/Img/64092e40-39ef-4e7c-88f1-4e482711b139/6da7e4e5-224b-4eb0-963a-4f990bf5b9ea.jpeg" type="image/jpeg" length="0" />
+      <source url="https://hvg.hu/kkv">HVG</source>
+      <rank>60</rank>
+      <link>https://hvg.hu/kkv/20261019_napelem-kartell-gvh</link>
+    </item>
+  </channel>
+</rss>
