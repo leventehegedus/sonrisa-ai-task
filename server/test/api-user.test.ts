@@ -56,6 +56,14 @@ describe('identity', () => {
   });
 });
 
+describe('users', () => {
+  it('GET /api/users as non-admin returns only id and name, ordered by id', async () => {
+    const res = await req('GET', '/api/users', bence);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([{ id: anna, name: 'Anna' }, { id: bence, name: 'Bence' }]);
+  });
+});
+
 describe('rules', () => {
   it('CRUD round-trip', async () => {
     const ch = addChannel(db, bence);

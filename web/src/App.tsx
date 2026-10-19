@@ -1,43 +1,16 @@
-import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-
-type Me = { name: string; homeCountry: string; isAdmin: boolean }
-type Status =
-  | { kind: 'loading' }
-  | { kind: 'ok'; me: Me }
-  | { kind: 'error'; message: string }
+import { useGetMeQuery } from './api'
 
 export default function App() {
-  const [status, setStatus] = useState<Status>({ kind: 'loading' })
-  const [attempt, setAttempt] = useState(0)
-
-  // shortcut: plain fetch + hard-coded user 1 until RTK Query and the user switcher (Tasks 11b/11c)
-  useEffect(() => {
-    let cancelled = false
-    setStatus({ kind: 'loading' })
-    fetch('/api/me', { headers: { 'X-User-Id': '1' } })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return (await res.json()) as Me
-      })
-      .then((me) => !cancelled && setStatus({ kind: 'ok', me }))
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [attempt])
+  const { data: me, error, refetch } = useGetMeQuery()
 
   let text = 'Connecting…'
-  if (status.kind === 'ok') {
-    const { name, homeCountry, isAdmin } = status.me
-    text = `Connected to API as ${name} (${homeCountry}${isAdmin ? ', admin' : ''})`
-  } else if (status.kind === 'error') {
-    text = `API not reachable: ${status.message}`
+  if (me) {
+    text = `Connected to API as ${me.name} (${me.homeCountry}${me.isAdmin ? ', admin' : ''})`
+  } else if (error) {
+    const reason = 'status' in error ? `HTTP ${error.status}` : (error.message ?? 'unknown error')
+    text = `API not reachable: ${reason}`
   }
 
   return (
@@ -48,7 +21,7 @@ export default function App() {
         </CardHeader>
         <CardContent className="flex flex-col items-start gap-4">
           <p>{text}</p>
-          <Button onClick={() => setAttempt((n) => n + 1)}>Retry</Button>
+          <Button onClick={() => refetch()}>Retry</Button>
         </CardContent>
       </Card>
     </main>
