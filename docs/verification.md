@@ -60,3 +60,10 @@ Then: 10/10 and 8/8 consecutive green runs, plus a new error-state test. See R-0
    - Setup: an isolated API instance (`PORT=3004`, temp DB) loaded `.env`. As user 1, an email channel was created with the user's own address, then `POST /api/channels/4/test` returned `{"ok":true}`.
    - The agent then searched the user's mailbox **read-only** through the Gmail connector. The message `[World Alerts] World Alerts test message` was in the **INBOX**, received 2026-10-19T23:18:22Z, with the body "This is a test alert sent from your channel settings. importance 1.00 = critical override (severity 1.00 ≥ 0.9) ≥ threshold 0.5".
    - As documented, Gmail set the From to the authenticated account.
+
+
+## Real Slack delivery (2026-10-20)
+
+- The user created a Slack Incoming Webhook. It's stored only at runtime (temp DB) and never committed. `SLACK_DRY_RUN=0` is set in the git-ignored `.env`.
+- An isolated API instance (`PORT=3005`, temp DB) created a slack channel as user 1. The API response showed the webhook **masked** (`https://hooks.slack.com/…/AGC2`). Then `POST /api/channels/4/test` returned `{"ok":true}` at 23:33:54Z, with **no** dry-run log line, so Slack answered HTTP 2xx to a real POST.
+- **Arrival in the channel is confirmed by the user, not the agent** (there's no Slack read access). Status: _awaiting the user's confirmation_.
