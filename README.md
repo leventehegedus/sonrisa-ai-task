@@ -36,7 +36,7 @@ Emails are written as JSON files to `data/outbox/` unless `SMTP_URL` is set. Adm
 | `DB_PATH` | `data/alerts.db` | SQLite file |
 | `SMTP_URL` | unset | e.g. `smtp://user:pass@host:587`; unset = write emails to `data/outbox/` |
 | `SLACK_DRY_RUN` | `1` | `0` = really post to Slack; otherwise Slack messages are only logged |
-| `SEED_SLACK_WEBHOOK` | unset | gives the seeded users a Slack channel with this webhook (fresh DB only) |
+| `SEED_SLACK_WEBHOOK` | unset | gives Bence (user 2) a Slack channel with this webhook (fresh DB only) |
 | `API_TARGET` | `http://localhost:3000` | web dev server: where `/api` is proxied |
 
 ## Commands

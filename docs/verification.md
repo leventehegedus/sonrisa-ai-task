@@ -2,7 +2,7 @@
 
 Goals and anti-goals are from [design spec](superpowers/specs/2026-10-19-world-alerts-design.md) sections 2 and 4. Run on 2026-10-20. Commands run from the repo root.
 
-- `npm test`: server 13 files / 215 tests passed; web 5 files / 24 tests passed (see "Known flake" below).
+- `npm test`: server 13 files / 215 tests passed; web 5 files / 25 tests passed. The tab-fallback flake found during this task is fixed (see "Flake (fixed)" below).
 - `npm run build -w web`: passed.
 - `npm run e2e`: 1 test passed, 6 screenshots written to [`evidence/screenshots/e2e/`](evidence/screenshots/e2e/).
 
@@ -41,6 +41,14 @@ The e2e run is isolated: API on :3002 with a throwaway DB under `/tmp/world-aler
 - A fresh machine install; no security scan of git history.
 - Security: there is no real authentication (the `X-User-Id` header is a dev shortcut, API bound to 127.0.0.1).
 
-## Known flake
+## Flake (fixed)
 
-`web/src/components/AppShell.test.tsx` "falls back to My alerts when the active Admin tab disappears after switching to a non-admin" failed in 2 of 6 `npm test -w web` runs on 2026-10-20 (`expected 'false' to be 'true'`), and passed in the others. Not caused by this task (no web source changed except `index.html`); it looks timing-dependent and is not fixed here.
+`web/src/components/AppShell.test.tsx` "falls back to My alerts when the active Admin tab disappears…" failed in 2 of 6 runs when this task first ran it. The controller reproduced it in 4 of 6.
+
+**Root cause:** a race. After a user switch, `me` is briefly undefined, and the test read `aria-selected` once. It also exposed a real UI glitch: a brief blank panel, and "Loading…" forever when `/me` failed.
+
+**Fixed** on `fix/appshell-tab-flake` (commits `a1ae670`, `b63201c`):
+- The UI renders the tabs only once `me` is loaded, and shows "Could not load your session." on error.
+- The test waits for the new user's data and retries the assertions.
+
+Then: 10/10 and 8/8 consecutive green runs, plus a new error-state test. See R-023 in [`ai-review-log.md`](ai-review-log.md).
