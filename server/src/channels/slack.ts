@@ -6,13 +6,16 @@ const configSchema = z.object({
   webhookUrl: z.url({ protocol: /^https$/ }).refine((u) => u.startsWith('https://hooks.slack.com/'), 'must be a Slack webhook URL'),
 });
 
+// Slack mrkdwn control chars: unescaped, feed text could inject <!channel> pings or disguised <url|label> links.
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 export function slackAdapter(opts: SlackOpts): ChannelAdapter<{ webhookUrl: string }> {
   return {
     type: 'slack',
     configSchema,
     maskConfig: (config) => ({ ...config, webhookUrl: `https://hooks.slack.com/…/${config.webhookUrl.slice(-4)}` }),
     async send(config, msg) {
-      const text = [`*${msg.title}*`, msg.summary, msg.reason, msg.url].filter(Boolean).join('\n');
+      const text = [`*${esc(msg.title)}*`, ...[msg.summary, msg.reason, msg.url].filter((v): v is string => !!v).map(esc)].join('\n');
       if (opts.dryRun) return opts.log(`[slack dry-run] ${text}`);
       let res: Response;
       try {

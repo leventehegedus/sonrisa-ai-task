@@ -46,7 +46,8 @@ export async function dispatchPending(db: Database, registry: Record<string, Cha
       }
       continue;
     }
-    // Outside the send try: a DB error here must not be routed into retry (would duplicate the alert).
+    // Outside the send try, so a failed status write is not counted as a failed send.
+    // shortcut: at-least-once — if this write fails after a successful send, the row stays pending and the next tick re-sends it, add a claim-before-send ('sending') state or receiver idempotency keys if duplicates matter
     markSent.run(ts, d.id);
     out.sent++;
   }

@@ -68,6 +68,14 @@ describe('slack', () => {
     expect(text).toContain('because');
     expect(text).toContain('https://example.com/a');
   });
+  it('escapes &, <, > in every untrusted value (no mrkdwn injection)', async () => {
+    const fetchImpl = vi.fn(async () => new Response('ok', { status: 200 }));
+    const hostile = { ...msg, title: '<!channel> <https://evil|Official notice>', summary: 'a & b <@U123>', reason: 'x > y', url: 'https://e.test/?a=1&b=<2>' };
+    await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, hostile);
+    const text = JSON.parse((fetchImpl.mock.calls[0] as any)[1].body).text as string;
+    expect(text).toBe('*&lt;!channel&gt; &lt;https://evil|Official notice&gt;*\na &amp; b &lt;@U123&gt;\nx &gt; y\nhttps://e.test/?a=1&amp;b=&lt;2&gt;');
+    expect(text).not.toMatch(/[<>]/);
+  });
   it('throws on 500 without leaking the webhook url', async () => {
     const fetchImpl = vi.fn(async () => new Response('no', { status: 500 }));
     const err = await reg({ fetchImpl: fetchImpl as any }).slack.send({ webhookUrl: SLACK }, msg).catch((e) => e);

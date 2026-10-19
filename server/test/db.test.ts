@@ -29,6 +29,13 @@ describe('openDb', () => {
     for (const t of ['users', 'channels', 'rules', 'events', 'deliveries', 'sources']) expect(names).toContain(t);
   });
 
+  it('accepts any channel type (validity is the adapter registry, not the schema)', () => {
+    const db = openDb(':memory:');
+    const { user } = seed(db);
+    db.prepare(`INSERT INTO channels (user_id, type, config) VALUES (?, 'teams', '{}')`).run(user);
+    expect(db.prepare(`SELECT type FROM channels ORDER BY id`).pluck().all()).toEqual(['email', 'teams']);
+  });
+
   it('dedups events on (source, external_id)', () => {
     const db = openDb(':memory:');
     const { insertEvent } = seed(db);

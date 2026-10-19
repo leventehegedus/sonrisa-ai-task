@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS channels (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('email', 'slack')),
+  type TEXT NOT NULL, -- valid = has an adapter in the channel registry; no CHECK so a new adapter needs no schema change
   config TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1
 );

@@ -80,9 +80,9 @@ describe('dispatchPending', () => {
     const a = setup(); a.db.prepare(`UPDATE channels SET enabled = 0`).run();
     expect(await dispatchPending(a.db, f.registry, t0)).toEqual({ sent: 0, failed: 1, retried: 0 });
     expect(a.d()).toMatchObject({ status: 'failed', last_error: 'channel disabled', attempts: 0 });
-    const b = setup(); b.db.prepare(`UPDATE channels SET type = 'slack'`).run();
+    const b = setup(); b.db.prepare(`UPDATE channels SET type = 'sms'`).run();
     await dispatchPending(b.db, f.registry, t0);
-    expect(b.d()).toMatchObject({ status: 'failed', last_error: 'unknown channel type slack', attempts: 0 });
+    expect(b.d()).toMatchObject({ status: 'failed', last_error: 'unknown channel type sms', attempts: 0 });
     const c = setup({ to: 5 });
     await dispatchPending(c.db, f.registry, t0);
     expect(c.d()).toMatchObject({ status: 'failed', last_error: 'invalid channel config', attempts: 0 });
