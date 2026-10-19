@@ -12,7 +12,7 @@ export default function UserSwitcher() {
   return (
     <Select value={String(userId)} onValueChange={(v) => dispatch(switchUser(Number(v)))}>
       <SelectTrigger className="w-40" aria-label="Switch user">
-        <SelectValue />
+        <SelectValue placeholder="Select user" />
       </SelectTrigger>
       <SelectContent>
         {users.map((u) => (

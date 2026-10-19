@@ -73,4 +73,18 @@ describe('AppShell', () => {
     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
     expect(await screen.findByText(/DE/)).toBeTruthy()
   })
+
+  it('falls back to My alerts when the active Admin tab disappears after switching to a non-admin', async () => {
+    renderShell(1)
+    const admin = await screen.findByRole('tab', { name: 'Admin' })
+    fireEvent.mouseDown(admin)
+    fireEvent.click(admin)
+    expect(await screen.findByText('Coming in Task 13')).toBeTruthy()
+
+    fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+    fireEvent.click((await screen.findAllByRole('option'))[1])
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
+    expect((await screen.findByRole('tab', { name: 'My alerts' })).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tabpanel').textContent).toBe('Coming in Task 12')
+  })
 })

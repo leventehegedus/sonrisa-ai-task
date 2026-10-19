@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useGetMeQuery } from '@/api'
 import UserSwitcher from '@/components/UserSwitcher'
 import { Badge } from '@/components/ui/badge'
@@ -13,7 +14,9 @@ const adminTab = { value: 'admin', label: 'Admin', todo: 'Task 13' }
 
 export default function AppShell() {
   const { data: me, error, refetch } = useGetMeQuery()
+  const [tab, setTab] = useState('alerts')
   const visible = me?.isAdmin ? [...tabs, adminTab] : tabs
+  const active = visible.some((t) => t.value === tab) ? tab : 'alerts' // Admin tab vanishes on switch to non-admin
 
   let status = <span className="text-muted-foreground">Connecting…</span>
   if (me) {
@@ -43,7 +46,7 @@ export default function AppShell() {
           <UserSwitcher />
         </div>
       </header>
-      <Tabs defaultValue="alerts">
+      <Tabs value={active} onValueChange={setTab}>
         <TabsList>
           {visible.map((t) => (
             <TabsTrigger key={t.value} value={t.value}>
