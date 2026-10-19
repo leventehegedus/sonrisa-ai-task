@@ -23,4 +23,4 @@ None yet. Pending: the stack.
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`e55c1b1` — docs: log prompt 005, backfill hash for 004
