@@ -23,7 +23,8 @@ export async function pollSource(db: Database, sourceId: number, deps: { fetchIm
     error = message(err);
   }
   try {
-    db.prepare(`UPDATE sources SET last_polled_at = ?, last_error = ? WHERE id = ?`).run(deps.now().toISOString(), error, sourceId);
+    db.prepare(`UPDATE sources SET last_polled_at = ?, last_error = ?, baseline_at = COALESCE(baseline_at, ?) WHERE id = ?`)
+      .run(deps.now().toISOString(), error, error === null ? deps.now().toISOString() : null, sourceId);
   } catch (err) {
     error ??= message(err);
   }
@@ -45,8 +46,8 @@ async function fetchAndIngest(db: Database, row: any, deps: { fetchImpl: typeof 
   if (!res.ok) throw new Error(`HTTP ${res.status}`); // body deliberately not read into the error
   const body = await res.text();
   // normalize throws before ingest on a bad body, and ingest is one transaction: no partial events.
-  // First poll of a source is a baseline: store what the feed already has, alert only on later items.
-  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now(), { createDeliveries: row.last_polled_at !== null }).inserted.length;
+  // First *successful* poll of a source is a baseline (baseline_at; a failed attempt doesn't count): store what the feed already has, alert only on later items.
+  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now(), { createDeliveries: row.baseline_at !== null }).inserted.length;
 }
 
 const message = (err: unknown): string => String((err as Error)?.message ?? err).slice(0, MAX_ERROR_LEN);
