@@ -19,4 +19,4 @@ pls step by step lead me the way to be able to test the implemented application,
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`81bedb5` (merge of `docs/testing-walkthrough`)
