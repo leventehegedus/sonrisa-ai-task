@@ -55,24 +55,30 @@ export function isoDate(pubDate: string, now: Date): string {
 
 const lower = (s: string) => s.toLocaleLowerCase('hu');
 
+/** Only http(s) links may become event.url (it is rendered as a link and sent in alerts). */
+export const httpUrl = (s: string): string | null => (/^https?:\/\//i.test(s) ? s : null);
+
 export const rss: SourceAdapter<RssConfig> = {
   type: 'rss',
   configSchema: z.object({
     feedId: z.string().min(1),
-    url: z.url(),
+    url: z.url({ protocol: /^https?$/ }),
     country: z.string().refine((c) => !!lookupCountry(c), 'unknown ISO2 country').nullable(),
     breakingKeywords: z.array(z.string()),
   }),
   url: (c) => c.url,
   normalize(body, config, now) {
     const breaking = config.breakingKeywords.map((k) => lower(k.trim())).filter(Boolean);
-    return parseRssItems(body, `rss:${config.feedId}`).map((item): NewEvent => {
+    return parseRssItems(body, `rss:${config.feedId}`).flatMap((item): NewEvent[] => {
       const title = cleanText(text(item.title)) ?? '';
-      const link = text(item.link) || null;
+      const rawLink = text(item.link);
+      const externalId = text(item.guid) || rawLink || title;
+      if (!externalId) return []; // no usable id: would collide on UNIQUE(source, external_id)
+      const link = httpUrl(rawLink);
       const isBreaking = breaking.some((k) => lower(title).includes(k));
-      return {
+      return [{
         source: `rss:${config.feedId}`,
-        externalId: text(item.guid) || link || title,
+        externalId,
         category: 'news',
         title,
         summary: cleanText(text(item.description)),
@@ -83,7 +89,7 @@ export const rss: SourceAdapter<RssConfig> = {
         severity: isBreaking ? 0.8 : 0.5,
         occurredAt: isoDate(text(item.pubDate), now),
         raw: item,
-      };
+      }];
     });
   },
 };

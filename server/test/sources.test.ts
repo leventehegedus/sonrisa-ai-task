@@ -38,6 +38,22 @@ describe('gdacs', () => {
   });
 
   it('url', () => expect(gdacs.url({})).toBe('https://www.gdacs.org/xml/rss.xml'));
+
+  const gdacsItem = (inner: string) =>
+    `<rss><channel><item><title>T</title><link>https://www.gdacs.org/x</link><gdacs:eventid>1</gdacs:eventid>${inner}<gdacs:iso3>HUN</gdacs:iso3></item></channel></rss>`;
+
+  it.each(['constructor', 'toString', 'Purple'])('unknown alertlevel %s throws', (level) => {
+    expect(() => gdacs.normalize(gdacsItem(`<gdacs:alertlevel>${level}</gdacs:alertlevel>`), {}, now)).toThrow(/alertlevel/);
+  });
+
+  it('missing alertlevel throws', () => {
+    expect(() => gdacs.normalize(gdacsItem(''), {}, now)).toThrow(/alertlevel/);
+  });
+
+  it('non-http item link → url null', () => {
+    const body = gdacsItem('<gdacs:alertlevel>Red</gdacs:alertlevel>').replace('https://www.gdacs.org/x', 'javascript:alert(1)');
+    expect(gdacs.normalize(body, {}, now)[0]).toMatchObject({ url: null, severity: 1.0, country: 'HU' });
+  });
 });
 
 describe('rss', () => {
@@ -85,8 +101,28 @@ describe('rss', () => {
     expect(rss.normalize(empty, rssConfig(), now)[0]!.summary).toBeNull();
   });
 
-  it('config: unknown country rejected', () => {
+  it('non-http(s) item link → url null (still usable as id)', () => {
+    const body = `<rss><channel><item><title>T</title><link>javascript:alert(1)</link></item>
+      <item><title>U</title><link>file:///etc/passwd</link></item></channel></rss>`;
+    const events = rss.normalize(body, rssConfig(), now);
+    expect(events.map((e) => e.url)).toEqual([null, null]);
+    expect(events.map((e) => e.externalId)).toEqual(['javascript:alert(1)', 'file:///etc/passwd']);
+  });
+
+  it('item with no guid, link or title is skipped; title is the last-resort id', () => {
+    const body = `<rss><channel><item><description>no id</description></item>
+      <item><guid> </guid><link></link><title>  </title></item>
+      <item><title>Only a title</title></item></channel></rss>`;
+    const events = rss.normalize(body, rssConfig(), now);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ externalId: 'Only a title', url: null });
+  });
+
+  it('config: unknown country and non-http(s) feed url rejected', () => {
     expect(() => rssConfig({ country: 'XX' })).toThrow();
+    expect(() => rssConfig({ url: 'file:///etc/passwd' })).toThrow();
+    expect(() => rssConfig({ url: 'javascript:alert(1)' })).toThrow();
+    expect(rssConfig({ url: 'http://example.com/rss' }).url).toBe('http://example.com/rss');
     expect(rss.url(rssConfig())).toBe('https://telex.hu/rss');
   });
 });
@@ -141,6 +177,11 @@ describe('manualEvent', () => {
     expect(e.externalId).toMatch(/^manual:[0-9a-f-]{36}$/);
   });
 
+  it('accepts http(s) url', () => {
+    expect(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5, url: 'https://a.test/x' }).url).toBe('https://a.test/x');
+    expect(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5, url: 'http://a.test/x' }).url).toBe('http://a.test/x');
+  });
+
   it('no country → global', () => {
     const e = manualEvent(ManualEventInput.parse({ category: 'news', title: 'X', severity: 0.5 }), now);
     expect(e).toMatchObject({ scope: 'global', country: null });
@@ -151,5 +192,7 @@ describe('manualEvent', () => {
     [{ category: 'news', title: 'X', severity: 1.5 }],
     [{ category: 'news', title: 'X', severity: 0.5, country: 'XX' }],
     [{ category: 'news', title: '', severity: 0.5 }],
+    [{ category: 'news', title: 'X', severity: 0.5, url: 'javascript:alert(1)' }],
+    [{ category: 'news', title: 'X', severity: 0.5, url: 'file:///etc/passwd' }],
   ])('rejects %j', (input) => expect(ManualEventInput.safeParse(input).success).toBe(false));
 });

@@ -7,7 +7,7 @@ export const ManualEventInput = z.object({
   category: z.enum(['news', 'market', 'disaster']),
   title: z.string().trim().min(1),
   summary: z.string().optional(),
-  url: z.url().optional(),
+  url: z.url({ protocol: /^https?$/ }).optional(),
   country: z.string().refine((c) => !!lookupCountry(c), 'unknown ISO2 country').optional(),
   severity: z.number().min(0).max(1),
 });
