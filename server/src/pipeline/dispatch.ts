@@ -31,10 +31,11 @@ export async function dispatchPending(db: Database, registry: Record<string, Cha
     if (!parsed?.success) { fail('invalid channel config'); continue; }
     const config = parsed.data;
 
+    let msg;
+    try { msg = buildMessage(rowToEvent(getEvent.get(d.event_id)), JSON.parse(d.score_breakdown) as ScoreBreakdown); } catch { fail('corrupt delivery data'); continue; }
+
     try {
-      await adapter.send(config, buildMessage(rowToEvent(getEvent.get(d.event_id)), JSON.parse(d.score_breakdown) as ScoreBreakdown));
-      markSent.run(ts, d.id);
-      out.sent++;
+      await adapter.send(config, msg);
     } catch (err: any) {
       const attempts = d.attempts + 1;
       const last = scrubSecrets(String(err?.message ?? err), config);
@@ -43,7 +44,11 @@ export async function dispatchPending(db: Database, registry: Record<string, Cha
         markError.run('pending', attempts, last, new Date(now.getTime() + BASE_BACKOFF_MS * 2 ** (attempts - 1)).toISOString(), d.id);
         out.retried++;
       }
+      continue;
     }
+    // Outside the send try: a DB error here must not be routed into retry (would duplicate the alert).
+    markSent.run(ts, d.id);
+    out.sent++;
   }
   return out;
 }

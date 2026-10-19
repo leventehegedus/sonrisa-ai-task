@@ -98,13 +98,30 @@ describe('dispatchPending', () => {
   });
 
   it('a throwing adapter does not abort the remaining deliveries', async () => {
-    const { db, user, channel } = setup();
+    const { db } = setup();
     ingest(db, [ev({ externalId: 'e2', title: 'Second' })], t0);
     let n = 0;
     const f = fake(async () => { if (n++ === 0) throw new Error('first dies'); });
     expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 1, failed: 0, retried: 1 });
     const rows = db.prepare(`SELECT status FROM deliveries ORDER BY id`).all() as any[];
     expect(rows.map((r) => r.status)).toEqual(['pending', 'sent']);
-    void user; void channel;
+  });
+
+  it('does not retry (no duplicate send) when marking sent fails after a successful send', async () => {
+    const { db, d } = setup();
+    db.exec(`CREATE TRIGGER no_sent BEFORE UPDATE ON deliveries WHEN NEW.status = 'sent' BEGIN SELECT RAISE(ABORT, 'disk full'); END`);
+    const f = fake(async () => {});
+    await expect(dispatchPending(db, f.registry, t0)).rejects.toThrow('disk full');
+    expect(f.calls).toHaveLength(1);
+    expect(d()).toMatchObject({ status: 'pending', attempts: 0, last_error: null, next_attempt_at: t0.toISOString() });
+  });
+
+  it('fails immediately as corrupt when score_breakdown is not JSON', async () => {
+    const { db, d } = setup();
+    db.prepare(`UPDATE deliveries SET score_breakdown = '{not json'`).run();
+    const f = fake(async () => {});
+    expect(await dispatchPending(db, f.registry, t0)).toEqual({ sent: 0, failed: 1, retried: 0 });
+    expect(d()).toMatchObject({ status: 'failed', last_error: 'corrupt delivery data', attempts: 0 });
+    expect(f.calls).toHaveLength(0);
   });
 });
