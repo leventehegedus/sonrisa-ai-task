@@ -1,0 +1,419 @@
+diff --git a/server/src/channels/slack.ts b/server/src/channels/slack.ts
+index 2033376..84a020e 100644
+--- a/server/src/channels/slack.ts
++++ b/server/src/channels/slack.ts
+@@ -2,7 +2,7 @@ import { z } from 'zod';
+ import type { ChannelAdapter } from './index';
+ 
+ export interface SlackOpts { dryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }
+-const configSchema = z.object({
++export const configSchema = z.object({
+   webhookUrl: z.url({ protocol: /^https$/ }).refine((u) => u.startsWith('https://hooks.slack.com/'), 'must be a Slack webhook URL'),
+ });
+ 
+diff --git a/server/src/db/rows.ts b/server/src/db/rows.ts
+index d451f20..74711fb 100644
+--- a/server/src/db/rows.ts
++++ b/server/src/db/rows.ts
+@@ -1,4 +1,4 @@
+-import type { Category, EventRow, Rule, Scope, User } from '../types';
++import type { Category, Channel, DeliveryStatus, EventRow, Rule, ScoreBreakdown, Scope, User } from '../types';
+ 
+ // Raw SQL rows (snake_case, JSON as TEXT, booleans as 0/1) -> domain types.
+ export const rowToUser = (r: any): User => ({
+@@ -19,3 +19,15 @@ export const rowToEvent = (r: any): EventRow => ({
+   title: r.title, summary: r.summary, url: r.url, country: r.country, scope: r.scope as Scope,
+   severity: r.severity, occurredAt: r.occurred_at, raw: JSON.parse(r.raw),
+ });
++
++export const rowToChannel = (r: any): Channel => ({
++  id: r.id, userId: r.user_id, type: r.type, config: JSON.parse(r.config), enabled: !!r.enabled,
++});
++
++// A deliveries row joined with its event's columns aliased e_* (see GET /api/my/deliveries).
++export const rowToDeliveryWithEvent = (r: any) => ({
++  id: r.id as number, status: r.status as DeliveryStatus, attempts: r.attempts as number, lastError: r.last_error as string | null,
++  createdAt: r.created_at as string, sentAt: r.sent_at as string | null, channelId: r.channel_id as number | null, ruleId: r.rule_id as number | null,
++  breakdown: JSON.parse(r.score_breakdown) as ScoreBreakdown,
++  event: { id: r.e_id as number, title: r.e_title as string, category: r.e_category as Category, country: r.e_country as string | null, scope: r.e_scope as Scope, url: r.e_url as string | null, occurredAt: r.e_occurred_at as string },
++});
+diff --git a/server/src/db/seed.ts b/server/src/db/seed.ts
+new file mode 100644
+index 0000000..eb6f648
+--- /dev/null
++++ b/server/src/db/seed.ts
+@@ -0,0 +1,5 @@
++import type { Database } from 'better-sqlite3';
++
++export function seed(_db: Database, _opts: { slackWebhook?: string } = {}): void {
++  // stub
++}
+diff --git a/server/src/http/app.ts b/server/src/http/app.ts
+new file mode 100644
+index 0000000..4cf2520
+--- /dev/null
++++ b/server/src/http/app.ts
+@@ -0,0 +1,33 @@
++import Fastify, { type FastifyInstance } from 'fastify';
++import type { Database } from 'better-sqlite3';
++import { z } from 'zod';
++import type { ChannelAdapter } from '../channels';
++import { authenticate } from './auth';
++import { userRoutes } from './user-routes';
++
++export interface AppDeps { registry: Record<string, ChannelAdapter<any>>; fetchImpl: typeof fetch; now: () => Date; log: (msg: string) => void }
++
++// Error messages can echo request data or URLs: hide Slack webhook paths and URL credentials (e.g. SMTP_URL).
++const scrubLog = (s: string) => s.replace(/https:\/\/hooks\.slack\.com\/\S*/g, 'https://hooks.slack.com/…').replace(/\/\/[^\s/@]+@/g, '//***@');
++
++export function buildApp(db: Database, deps: AppDeps): FastifyInstance {
++  const app = Fastify({ logger: false });
++  app.decorateRequest('user', null as never);
++
++  app.setErrorHandler((err: any, req, reply) => {
++    if (err instanceof z.ZodError) return reply.code(400).send({ error: 'invalid request', issues: err.issues });
++    // Fastify's own client errors (malformed JSON, empty JSON body, unsupported media type, too large).
++    if (typeof err?.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500) {
++      return reply.code(err.statusCode).send({ error: 'invalid request', message: String(err.message) });
++    }
++    deps.log(`http ${req.method} ${req.url.split('?')[0]}: ${scrubLog(String(err?.message ?? err))}`);
++    return reply.code(500).send({ error: 'internal error' });
++  });
++
++  app.register(async (api) => {
++    api.addHook('preHandler', authenticate(db));
++    await api.register(userRoutes(db, deps));
++  }, { prefix: '/api' });
++
++  return app;
++}
+diff --git a/server/src/http/auth.ts b/server/src/http/auth.ts
+new file mode 100644
+index 0000000..2f603b3
+--- /dev/null
++++ b/server/src/http/auth.ts
+@@ -0,0 +1,28 @@
++import type { Database } from 'better-sqlite3';
++import type { FastifyReply, FastifyRequest } from 'fastify';
++import { z } from 'zod';
++import { rowToUser } from '../db/rows';
++import type { User } from '../types';
++
++declare module 'fastify' {
++  interface FastifyRequest { user: User }
++}
++
++/** A positive integer written as plain digits (rejects `1abc`, `0`, `-1`, `1.5`, ``). */
++export const IdString = z.string().regex(/^[1-9]\d{0,14}$/).transform(Number);
++export const IdParams = z.object({ id: IdString });
++
++// shortcut: header identity, not authentication; replace with real auth before any deployment
++export function authenticate(db: Database) {
++  const getUser = db.prepare(`SELECT * FROM users WHERE id = ?`);
++  return async (req: FastifyRequest, reply: FastifyReply) => {
++    const id = IdString.safeParse(req.headers['x-user-id']);
++    const row = id.success ? getUser.get(id.data) : undefined;
++    if (!row) return reply.code(401).send({ error: 'unknown or missing X-User-Id' });
++    req.user = rowToUser(row);
++  };
++}
++
++export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
++  if (!req.user?.isAdmin) return reply.code(403).send({ error: 'admin only' });
++}
+diff --git a/server/src/types.ts b/server/src/types.ts
+index b646117..4e38edc 100644
+--- a/server/src/types.ts
++++ b/server/src/types.ts
+@@ -7,3 +7,4 @@ export interface Rule { id: number; userId: number; name: string; categories: Ca
+ export type ProximityReason = 'home' | 'subregion' | 'continent' | 'elsewhere' | 'global' | 'unknown';
+ export interface ScoreBreakdown { severity: number; proximity: number; proximityReason: ProximityReason; override: boolean; importance: number; threshold: number; fires: boolean }
+ export type DeliveryStatus = 'pending' | 'sent' | 'failed';
++export interface Channel { id: number; userId: number; type: string; config: unknown; enabled: boolean }
+diff --git a/server/test/api-user.test.ts b/server/test/api-user.test.ts
+new file mode 100644
+index 0000000..50e0109
+--- /dev/null
++++ b/server/test/api-user.test.ts
+@@ -0,0 +1,281 @@
++import { describe, it, expect, beforeEach, afterEach } from 'vitest';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { z } from 'zod';
++import { buildApp } from '../src/http/app';
++import { seed } from '../src/db/seed';
++import { createChannelRegistry, type ChannelAdapter } from '../src/channels';
++import { sourceAdapters } from '../src/sources';
++import { dispatchPending } from '../src/pipeline/dispatch';
++import { addChannel, addRule, addUser, makeDb } from './helpers';
++
++const WEBHOOK = 'https://hooks.slack.com/services/T000/B000/SECRETxyz1234';
++const now = new Date('2026-10-19T12:00:00Z');
++let dir: string;
++let logs: string[];
++beforeEach(() => { dir = fs.mkdtempSync(os.tmpdir() + '/wa-api-'); logs = []; });
++afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
++
++// A non-builtin adapter whose send error contains its secret, to prove scrubbing and registry-driven types.
++const fakeAdapter: ChannelAdapter<{ token: string }> = {
++  type: 'fake', configSchema: z.object({ token: z.string() }), maskConfig: () => ({ token: '***' }),
++  send: async (c) => { throw new Error(`boom with ${c.token}`); },
++};
++
++function setup() {
++  const db = makeDb();
++  const anna = addUser(db, { name: 'Anna', email: 'anna@example.com' });
++  const bob = addUser(db, { name: 'Bob', email: 'bob@example.com' });
++  const registry = { ...createChannelRegistry({ outboxDir: path.join(dir, 'outbox'), slackDryRun: false, log: () => {} }), fake: fakeAdapter };
++  const app = buildApp(db, { registry, fetchImpl: (async () => new Response('')) as typeof fetch, now: () => now, log: (m) => { logs.push(m); } });
++  const as = (user: number) => (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, payload?: unknown) =>
++    app.inject({ method, url, headers: { 'x-user-id': String(user) }, ...(payload === undefined ? {} : { payload: payload as object }) });
++  const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
++  return { db, app, anna, bob, A: as(anna), B: as(bob), count };
++}
++
++describe('identity', () => {
++  it('no X-User-Id → 401', async () => {
++    const { app } = setup();
++    expect((await app.inject({ method: 'GET', url: '/api/me' })).statusCode).toBe(401);
++  });
++  it.each(['1abc', '0', '-1', '1.5', '999', ''])('X-User-Id %j → 401', async (h) => {
++    const { app } = setup();
++    expect((await app.inject({ method: 'GET', url: '/api/rules', headers: { 'x-user-id': h } })).statusCode).toBe(401);
++  });
++  it('GET /api/me returns the user', async () => {
++    const { A, anna } = setup();
++    const res = await A('GET', '/api/me');
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual({ id: anna, name: 'Anna', email: 'anna@example.com', homeCountry: 'HU', isAdmin: false });
++  });
++});
++
++describe('rules', () => {
++  it('CRUD round-trip, defaults, channelIds unique-ified', async () => {
++    const { db, A, anna } = setup();
++    const ch = addChannel(db, anna);
++    const created = await A('POST', '/api/rules', { name: 'Floods', categories: ['disaster'], keywords: ['árvíz'], threshold: 0.6, channelIds: [ch, ch] });
++    expect(created.statusCode).toBe(201);
++    const rule = created.json();
++    expect(rule).toMatchObject({ userId: anna, name: 'Floods', categories: ['disaster'], keywords: ['árvíz'], threshold: 0.6, channelIds: [ch], enabled: true });
++    expect((await A('GET', '/api/rules')).json()).toEqual([rule]);
++    expect((await A('GET', `/api/rules/${rule.id}`)).json()).toEqual(rule);
++    const patched = await A('PATCH', `/api/rules/${rule.id}`, { threshold: 0.7, enabled: false });
++    expect(patched.statusCode).toBe(200);
++    expect(patched.json()).toEqual({ ...rule, threshold: 0.7, enabled: false });
++    expect((await A('DELETE', `/api/rules/${rule.id}`)).statusCode).toBe(204);
++    expect((await A('GET', '/api/rules')).json()).toEqual([]);
++    expect((await A('POST', '/api/rules', { name: 'All' })).json()).toMatchObject({ categories: [], keywords: [], threshold: 0.5, channelIds: [], enabled: true });
++  });
++
++  it("another user's rule → 404 on GET/PATCH/DELETE, and is untouched", async () => {
++    const { db, B, anna } = setup();
++    const r = addRule(db, anna, { name: 'mine' });
++    expect((await B('GET', `/api/rules/${r}`)).statusCode).toBe(404);
++    expect((await B('PATCH', `/api/rules/${r}`, { name: 'stolen' })).statusCode).toBe(404);
++    expect((await B('DELETE', `/api/rules/${r}`)).statusCode).toBe(404);
++    expect((await B('GET', '/api/rules')).json()).toEqual([]);
++    expect((db.prepare(`SELECT name FROM rules WHERE id = ?`).get(r) as any).name).toBe('mine');
++    expect((await B('GET', '/api/rules/abc')).statusCode).toBe(400);
++  });
++
++  // Review Focus 5: out-of-range or unknown input → 400 and nothing written.
++  it.each([
++    ['threshold 1.5', { name: 'x', threshold: 1.5 }],
++    ['category sports', { name: 'x', categories: ['sports'] }],
++    ['empty name', { name: '' }],
++    ['name > 100', { name: 'x'.repeat(101) }],
++    ['keyword > 50 chars', { name: 'x', keywords: ['k'.repeat(51)] }],
++    ['21 keywords', { name: 'x', keywords: Array.from({ length: 21 }, (_, i) => `k${i}`) }],
++    ['unknown field', { name: 'x', userId: 2 }],
++  ])('POST rule with %s → 400, rules count unchanged', async (_label, body) => {
++    const { A, count } = setup();
++    const res = await A('POST', '/api/rules', body);
++    expect(res.statusCode).toBe(400);
++    expect(res.json()).toMatchObject({ error: 'invalid request', issues: expect.any(Array) });
++    expect(count('rules')).toBe(0);
++  });
++
++  it("channelIds entry of another user → 400 on POST and PATCH, nothing written", async () => {
++    const { db, A, anna, bob, count } = setup();
++    const mine = addChannel(db, anna);
++    const theirs = addChannel(db, bob);
++    expect((await A('POST', '/api/rules', { name: 'x', channelIds: [mine, theirs] })).statusCode).toBe(400);
++    expect((await A('POST', '/api/rules', { name: 'x', channelIds: [9999] })).statusCode).toBe(400);
++    expect(count('rules')).toBe(0);
++    const r = addRule(db, anna, { channelIds: [mine] });
++    expect((await A('PATCH', `/api/rules/${r}`, { name: 'changed', channelIds: [theirs] })).statusCode).toBe(400);
++    expect((await A('PATCH', `/api/rules/${r}`, { threshold: 1.5 })).statusCode).toBe(400);
++    expect((await A('GET', `/api/rules/${r}`)).json()).toMatchObject({ name: 'rule', threshold: 0.5, channelIds: [mine] });
++    expect(count('rules')).toBe(1);
++  });
++
++  it('malformed JSON body → 400 { error }', async () => {
++    const { app, anna, count } = setup();
++    const res = await app.inject({ method: 'POST', url: '/api/rules', headers: { 'x-user-id': String(anna), 'content-type': 'application/json' }, payload: '{"name": ' });
++    expect(res.statusCode).toBe(400);
++    expect(res.json()).toHaveProperty('error');
++    expect(count('rules')).toBe(0);
++  });
++});
++
++describe('channels', () => {
++  // Review Focus 2: the Slack webhook never comes back in full.
++  it('slack webhook is masked in POST, GET and PATCH responses', async () => {
++    const { A } = setup();
++    const created = await A('POST', '/api/channels', { type: 'slack', config: { webhookUrl: WEBHOOK } });
++    expect(created.statusCode).toBe(201);
++    expect(created.json().config).toEqual({ webhookUrl: 'https://hooks.slack.com/…/1234' });
++    const list = await A('GET', '/api/channels');
++    expect(list.statusCode).toBe(200);
++    expect(list.json()).toHaveLength(1);
++    const patched = await A('PATCH', `/api/channels/${created.json().id}`, { enabled: false });
++    expect(patched.json()).toMatchObject({ enabled: false, config: { webhookUrl: 'https://hooks.slack.com/…/1234' } });
++    for (const body of [created.body, list.body, patched.body, (await A('GET', `/api/channels/${created.json().id}`)).body]) {
++      expect(body).not.toContain('SECRETxyz');
++      expect(body).not.toContain('T000/B000');
++    }
++  });
++
++  it('email config defaults to to = user email; PATCH can change config', async () => {
++    const { A, anna } = setup();
++    const created = await A('POST', '/api/channels', { type: 'email' });
++    expect(created.statusCode).toBe(201);
++    expect(created.json()).toMatchObject({ userId: anna, type: 'email', config: { to: 'anna@example.com' }, enabled: true });
++    const patched = await A('PATCH', `/api/channels/${created.json().id}`, { config: { to: 'other@example.com' } });
++    expect(patched.json().config).toEqual({ to: 'other@example.com' });
++  });
++
++  // Review Focus 5 (channels).
++  it.each([
++    ['slack http:// webhook', { type: 'slack', config: { webhookUrl: 'http://hooks.slack.com/services/T/B/x' } }],
++    ['slack non-slack host', { type: 'slack', config: { webhookUrl: 'https://evil.example.com/hook' } }],
++    ['unknown type', { type: 'sms', config: {} }],
++    ['prototype key as type', { type: 'constructor', config: {} }],
++    ['bad email', { type: 'email', config: { to: 'not-an-email' } }],
++  ])('POST channel with %s → 400, channels count unchanged', async (_l, body) => {
++    const { A, count } = setup();
++    const res = await A('POST', '/api/channels', body);
++    expect(res.statusCode).toBe(400);
++    expect(res.json()).toMatchObject({ error: 'invalid request' });
++    expect(count('channels')).toBe(0);
++  });
++
++  it('PATCH cannot change type or set an invalid config; foreign channel → 404', async () => {
++    const { db, A, B, anna } = setup();
++    const ch = addChannel(db, anna, { type: 'slack', config: { webhookUrl: WEBHOOK } });
++    expect((await A('PATCH', `/api/channels/${ch}`, { type: 'email' })).statusCode).toBe(400);
++    expect((await A('PATCH', `/api/channels/${ch}`, { config: { webhookUrl: 'http://hooks.slack.com/x' } })).statusCode).toBe(400);
++    expect((await B('GET', `/api/channels/${ch}`)).statusCode).toBe(404);
++    expect((await B('PATCH', `/api/channels/${ch}`, { enabled: false })).statusCode).toBe(404);
++    expect((await B('DELETE', `/api/channels/${ch}`)).statusCode).toBe(404);
++    expect((await B('POST', `/api/channels/${ch}/test`)).statusCode).toBe(404);
++    expect(db.prepare(`SELECT type, config, enabled FROM channels WHERE id = ?`).get(ch)).toEqual({ type: 'slack', config: JSON.stringify({ webhookUrl: WEBHOOK }), enabled: 1 });
++  });
++
++  // Review Focus 3: deleting a channel drops it from rules; pending deliveries end up failed, no crash.
++  it("DELETE removes the id from the user's rules and orphans deliveries safely", async () => {
++    const { db, A, anna, count } = setup();
++    const gone = addChannel(db, anna);
++    const kept = addChannel(db, anna, { config: { to: 'k@example.com' } });
++    const r1 = addRule(db, anna, { channelIds: [gone, kept] });
++    const r2 = addRule(db, anna, { channelIds: [gone] });
++    const ev = Number(db.prepare(`INSERT INTO events (source, external_id, category, title, scope, severity, occurred_at, raw) VALUES ('s', 'e', 'news', 't', 'global', 1, ?, '{}')`).run(now.toISOString()).lastInsertRowid);
++    db.prepare(`INSERT INTO deliveries (rule_id, event_id, channel_id, score, score_breakdown, created_at, next_attempt_at) VALUES (?, ?, ?, 1, '{}', ?, ?)`).run(r1, ev, gone, now.toISOString(), now.toISOString());
++    expect((await A('DELETE', `/api/channels/${gone}`)).statusCode).toBe(204);
++    expect((await A('GET', `/api/rules/${r1}`)).json().channelIds).toEqual([kept]);
++    expect((await A('GET', `/api/rules/${r2}`)).json().channelIds).toEqual([]);
++    expect(count('channels')).toBe(1);
++    expect(await dispatchPending(db, {}, now)).toEqual({ sent: 0, failed: 1, retried: 0 });
++    expect(db.prepare(`SELECT status, last_error, channel_id FROM deliveries`).get()).toEqual({ status: 'failed', last_error: 'channel deleted', channel_id: null });
++  });
++
++  it('POST /:id/test sends through the adapter now (even when disabled) and scrubs errors', async () => {
++    const { db, A, anna } = setup();
++    const email = addChannel(db, anna, { config: { to: 'anna@example.com' }, enabled: false });
++    expect((await A('POST', `/api/channels/${email}/test`)).json()).toEqual({ ok: true });
++    const files = fs.readdirSync(path.join(dir, 'outbox'));
++    expect(files).toHaveLength(1);
++    expect(fs.readFileSync(path.join(dir, 'outbox', files[0]!), 'utf8')).toContain('World Alerts test message');
++    const fake = addChannel(db, anna, { type: 'fake' as 'email', config: { token: 'tok-SUPERSECRET' } });
++    const res = await A('POST', `/api/channels/${fake}/test`);
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual({ ok: false, error: 'boom with ***' });
++  });
++});
++
++describe('GET /api/my/deliveries', () => {
++  it("returns only the user's deliveries, newest first, with event and parsed breakdown", async () => {
++    const { db, A, anna, bob } = setup();
++    const ca = addChannel(db, anna);
++    const cb = addChannel(db, bob);
++    const ra = addRule(db, anna, { channelIds: [ca] });
++    const ev = Number(db.prepare(`INSERT INTO events (source, external_id, category, title, url, country, scope, severity, occurred_at, raw) VALUES ('s', 'e', 'disaster', 'Flood', 'https://x.io', 'HU', 'country', 1, '2026-10-19T10:00:00.000Z', '{}')`).run().lastInsertRowid);
++    const ev2 = Number(db.prepare(`INSERT INTO events (source, external_id, category, title, scope, severity, occurred_at, raw) VALUES ('s', 'e2', 'news', 'Later', 'global', 1, '2026-10-19T11:00:00.000Z', '{}')`).run().lastInsertRowid);
++    const ins = db.prepare(`INSERT INTO deliveries (rule_id, event_id, channel_id, score, score_breakdown, created_at) VALUES (?, ?, ?, 1, ?, ?)`);
++    ins.run(ra, ev, ca, JSON.stringify({ importance: 1 }), '2026-10-19T10:00:00.000Z');
++    ins.run(ra, ev2, ca, JSON.stringify({ importance: 0.9 }), '2026-10-19T11:00:00.000Z');
++    ins.run(null, ev, cb, '{}', '2026-10-19T12:00:00.000Z');
++    const res = await A('GET', '/api/my/deliveries');
++    expect(res.statusCode).toBe(200);
++    const items = res.json();
++    expect(items.map((d: any) => d.event.title)).toEqual(['Later', 'Flood']);
++    expect(items[1]).toEqual({
++      id: expect.any(Number), status: 'pending', attempts: 0, lastError: null, createdAt: '2026-10-19T10:00:00.000Z', sentAt: null,
++      channelId: ca, ruleId: ra, breakdown: { importance: 1 },
++      event: { id: ev, title: 'Flood', category: 'disaster', country: 'HU', scope: 'country', url: 'https://x.io', occurredAt: '2026-10-19T10:00:00.000Z' },
++    });
++  });
++});
++
++describe('errors', () => {
++  it('unexpected error → 500 { error: internal error }, logged without stack', async () => {
++    const { db, A } = setup();
++    db.exec(`DROP TABLE deliveries; DROP TABLE rules`);
++    const res = await A('GET', '/api/rules');
++    expect(res.statusCode).toBe(500);
++    expect(res.json()).toEqual({ error: 'internal error' });
++    expect(logs.join('\n')).toContain('no such table');
++    expect(logs.join('\n')).not.toMatch(/\n\s+at /);
++  });
++});
++
++describe('seed', () => {
++  it('is idempotent: running twice still gives 3 users, 5 sources', () => {
++    const db = makeDb();
++    seed(db);
++    seed(db);
++    const users = db.prepare(`SELECT name, email, home_country, is_admin FROM users ORDER BY id`).all();
++    expect(users).toEqual([
++      { name: 'Anna', email: 'anna@example.com', home_country: 'HU', is_admin: 1 },
++      { name: 'Bence', email: 'bence@example.com', home_country: 'HU', is_admin: 0 },
++      { name: 'Priya', email: 'priya@example.com', home_country: 'NP', is_admin: 0 },
++    ]);
++    const sources = db.prepare(`SELECT type, config, poll_interval_s FROM sources ORDER BY id`).all() as any[];
++    expect(sources.map((s) => [s.type, JSON.parse(s.config).feedId ?? null, JSON.parse(s.config).country ?? null])).toEqual([
++      ['gdacs', null, null], ['coingecko', null, null], ['rss', 'telex', 'HU'], ['rss', 'hvg', 'HU'], ['rss', 'bbc-world', null],
++    ]);
++    for (const s of sources) {
++      expect(s.poll_interval_s).toBe(300);
++      expect(sourceAdapters[s.type as keyof typeof sourceAdapters].configSchema.safeParse(JSON.parse(s.config)).success).toBe(true);
++    }
++    const channels = db.prepare(`SELECT c.type, c.config, u.email FROM channels c JOIN users u ON u.id = c.user_id`).all() as any[];
++    expect(channels.map((c) => c.type)).toEqual(['email', 'email', 'email']);
++    for (const c of channels) expect(JSON.parse(c.config)).toEqual({ to: c.email });
++    const rules = db.prepare(`SELECT r.categories, r.threshold, r.channel_ids, (SELECT json_group_array(id) FROM channels WHERE user_id = r.user_id) AS own FROM rules r`).all() as any[];
++    expect(rules).toHaveLength(3);
++    for (const r of rules) expect([r.categories, r.threshold, r.channel_ids]).toEqual(['[]', 0.5, r.own]);
++  });
++
++  it('adds a Slack channel for Bence (and to his rule) only when a webhook is given', () => {
++    const db = makeDb();
++    seed(db, { slackWebhook: WEBHOOK });
++    const slack = db.prepare(`SELECT c.id, c.config, u.name FROM channels c JOIN users u ON u.id = c.user_id WHERE c.type = 'slack'`).all() as any[];
++    expect(slack).toHaveLength(1);
++    expect(slack[0]).toMatchObject({ name: 'Bence', config: JSON.stringify({ webhookUrl: WEBHOOK }) });
++    const rule = db.prepare(`SELECT channel_ids FROM rules r JOIN users u ON u.id = r.user_id WHERE u.name = 'Bence'`).get() as any;
++    expect(JSON.parse(rule.channel_ids)).toContain(slack[0].id);
++  });
++});
