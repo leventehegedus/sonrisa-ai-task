@@ -43,4 +43,5 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 022 | [Testing walkthrough + requirements checklist](022-testing-walkthrough-and-checklist.md) | `81bedb5` |
 | 023 | [Will Send test reach my real email?](023-real-email-on-send-test.md) | `b4ca357` |
 | 024 | [Set up SMTP so real email can be tested](024-set-up-real-smtp.md) | `4ef0659` |
-| 025 | [Gmail App password: real email verified](025-gmail-app-password-test.md) | _pending_ |
+| 025 | [Gmail App password: real email verified](025-gmail-app-password-test.md) | `9e1f929` |
+| 026 | [Slack: step-by-step setup](026-slack-step-by-step.md) | _pending_ |
