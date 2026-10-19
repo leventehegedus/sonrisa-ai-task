@@ -25,4 +25,4 @@ From this point add all the prompts to the prompts folder I've written to here. 
 
 ## Commit
 
-_pending — backfilled in the next prompt's commit_
+`c79614d` — chore: add prompts/ and docs/ folders with task brief and decision log
