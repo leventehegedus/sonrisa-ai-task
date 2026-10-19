@@ -1,0 +1,838 @@
+0e26752 feat(web): admin views and inject event dialog
+ docs/evidence/m3-web-connection.md       |  40 ++++++++
+ web/src/api.ts                           |  38 ++++++-
+ web/src/components/AppShell.test.tsx     |  17 +++-
+ web/src/components/AppShell.tsx          |   6 +-
+ web/src/components/InjectEventDialog.tsx |  91 +++++++++++++++++
+ web/src/components/ui/dialog.tsx         | 166 +++++++++++++++++++++++++++++++
+ web/src/pages/admin/AdminLayout.tsx      |  35 +++++++
+ web/src/pages/admin/Deliveries.tsx       |  62 ++++++++++++
+ web/src/pages/admin/Events.tsx           |  37 +++++++
+ web/src/pages/admin/Rules.tsx            |  36 +++++++
+ web/src/pages/admin/Sources.tsx          |  79 +++++++++++++++
+ web/src/pages/admin/Users.tsx            |  33 ++++++
+ web/src/pages/admin/admin.test.tsx       | 128 ++++++++++++++++++++++++
+ web/src/types.ts                         |   8 ++
+ 14 files changed, 772 insertions(+), 4 deletions(-)
+diff --git a/docs/evidence/m3-web-connection.md b/docs/evidence/m3-web-connection.md
+index 7d611f2..ce1ed1d 100644
+--- a/docs/evidence/m3-web-connection.md
++++ b/docs/evidence/m3-web-connection.md
+@@ -52,8 +52,48 @@ $ ls data/outbox  (diff vs before)
+   {"from":{...},"to":[{"address":"bence@example.com"}],"subject":"[World Alerts] World Alerts test message",...}
+ $ curl -X POST localhost:5174/api/channels -d '{"type":"slack","config":{"webhookUrl":"https://hooks.slack.com/services/T/B/secret1234"}}'
+ {"id":5,"type":"slack","config":{"webhookUrl":"https://hooks.slack.com/…/1234"},"enabled":true}
+ $ curl -X PATCH localhost:5174/api/channels/5 -d '{"config":{"webhookUrl":"https://hooks.slack.com/…/1234"}}'   # the masked value, which the UI never sends
+ {"error":"invalid request","issues":[{"code":"custom","path":["webhookUrl"],"message":"must be a Slack webhook URL"},{"code":"custom","path":["webhookUrl"],"message":"must not be the masked form"}]}
+ ```
+ 
+ Shutdown: killed the listeners on :3001 and :5174; `lsof` printed nothing. The outbox file was deleted. The browser UI itself was not driven here; the page behaviour is covered by the jsdom tests in `web/src/pages/pages.test.tsx`.
++
++# M3 Task 13: admin API through the Vite proxy (real run)
++
++Isolated API on :3001 (temp DB) and Vite on :5174 (API_TARGET=http://localhost:3001). Anna = user 1 (admin, HU), Bence = 2 (HU), Priya = 3 (NP). The user's :3000/:5173 and data/alerts.db were not touched. The browser UI was not driven; the pages are covered by jsdom tests.
++
++```
++$ curl -s localhost:5174/api/admin/users -H X-User-Id: 1
++[{"id":1,"name":"Anna","email":"anna@example.com","homeCountry":"HU","isAdmin":true},{"id":2,"name":"Bence","email":"bence@example.com","homeCountry":"HU","isAdmin":false},{"id":3,"name":"Priya","email":"priya@example.com","homeCountry":"NP","isAdmin":false}]
++$ inject HU 0.6 as Anna
++{"event":{"id":365,"source":"manual","externalId":"manual:84bfc432-44ad-4429-a198-71df69f3d398","category":"news","title":"Task13 HU check","summary":null,"url":null,"country":"HU","scope":"country","severity":0.6,"occurredAt":"2026-10-19T22:00:05.629Z","raw":{"category":"news","title":"Task13 HU check","country":"HU","severity":0.6}},"deliveriesCreated":2}
++$ GET /api/admin/deliveries
++2 2 Task13 HU check pending 0.6 False
++1 1 Task13 HU check pending 0.6 False
++$ inject NP 1.0
++{"event":{"id":366,"source":"manual","externalId":"manual:887f654a-e2cc-45bc-bbdf-9d945dd51417","category":"disaster","title":"Task13 NP check","summary":null,"url":null,"country":"NP","scope":"country","severity":1,"occurredAt":"2026-10-19T22:00:05.703Z","raw":{"category":"disaster","title":"Task13 NP check","country":"NP","severity":1}},"deliveriesCreated":3}
++5 3 Task13 NP check pending 1 override= True
++4 2 Task13 NP check pending 1 override= True
++3 1 Task13 NP check pending 1 override= True
++$ bad country lowercase
++{"error":"invalid request","issues":[{"code":"custom","path":["country"],"message":"unknown ISO2 country"}]}
++$ sources
++1 GDACS True 300
++2 CoinGecko True 300
++3 Telex True 300
++4 HVG True 300
++5 BBC World True 300
++$ PATCH source 1 enabled=false
++{"id":1,"type":"gdacs","name":"GDACS","config":{},"enabled":false,"pollIntervalS":300,"lastPolledAt":"2026-10-19T22:00:00.792Z","lastError":null,"baselineAt":"2026-10-19T22:00:00.792Z"}
++$ poll source 1 (disabled)
++{"ok":true,"inserted":0}
++$ non-admin Bence
++users: {"error":"admin only"} [403]
++rules: {"error":"admin only"} [403]
++events: {"error":"admin only"} [403]
++deliveries: {"error":"admin only"} [403]
++sources: {"error":"admin only"} [403]
++retry non-failed: {"error":"only failed deliveries can be retried"} [409]
++```
++
++Shutdown: killed the listeners on :3001 and :5174 (lsof empty). Outbox files created by this run were deleted (data/outbox back to its prior 18 files).
+diff --git a/web/src/api.ts b/web/src/api.ts
+index ff945d0..a01c77f 100644
+--- a/web/src/api.ts
++++ b/web/src/api.ts
+@@ -1,10 +1,13 @@
+ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+-import type { Channel, ChannelInput, ChannelPatch, Me, MyDelivery, Rule, RuleInput, TestResult, UserSummary } from './types'
++import type {
++  AdminDelivery, AdminRule, Channel, ChannelInput, ChannelPatch, EventRow, InjectInput, InjectResult, Me, MyDelivery, PollResult, Rule, RuleInput,
++  Source, SourcePatch, TestResult, UserSummary,
++} from './types'
+ 
+ export const api = createApi({
+   reducerPath: 'api',
+   baseQuery: fetchBaseQuery({
+     baseUrl: `${location.origin}/api`, // absolute: fetchBaseQuery builds a Request, which rejects relative URLs outside browsers
+     prepareHeaders: (headers, { getState }) => {
+       headers.set('X-User-Id', String((getState() as { session: { userId: number } }).session.userId))
+       return headers
+@@ -29,32 +32,65 @@ export const api = createApi({
+     }),
+     // a deleted channel is also dropped from rules' channelIds server-side
+     deleteChannel: build.mutation<void, number>({
+       query: (id) => ({ url: `/channels/${id}`, method: 'DELETE' }),
+       invalidatesTags: ['Channels', 'Rules'],
+     }),
+     testChannel: build.mutation<TestResult, number>({ query: (id) => ({ url: `/channels/${id}/test`, method: 'POST' }) }),
+     getMyDeliveries: build.query<MyDelivery[], void>({ query: () => '/my/deliveries', providesTags: ['MyDeliveries'] }),
++    getAdminUsers: build.query<Me[], void>({ query: () => '/admin/users', providesTags: ['AdminUsers'] }),
++    getAdminRules: build.query<AdminRule[], void>({ query: () => '/admin/rules', providesTags: ['AdminRules'] }),
++    getEvents: build.query<EventRow[], void>({ query: () => '/admin/events?limit=100', providesTags: ['Events'] }),
++    getDeliveries: build.query<AdminDelivery[], string | void>({
++      query: (status) => (status ? `/admin/deliveries?status=${status}` : '/admin/deliveries'),
++      providesTags: ['Deliveries'],
++    }),
++    retryDelivery: build.mutation<AdminDelivery, number>({
++      query: (id) => ({ url: `/admin/deliveries/${id}/retry`, method: 'POST' }),
++      invalidatesTags: ['Deliveries', 'MyDeliveries'],
++    }),
++    getSources: build.query<Source[], void>({ query: () => '/admin/sources', providesTags: ['Sources'] }),
++    updateSource: build.mutation<Source, SourcePatch>({
++      query: ({ id, ...body }) => ({ url: `/admin/sources/${id}`, method: 'PATCH', body }),
++      invalidatesTags: ['Sources'],
++    }),
++    pollSource: build.mutation<PollResult, number>({
++      query: (id) => ({ url: `/admin/sources/${id}/poll`, method: 'POST' }),
++      invalidatesTags: ['Sources', 'Events'],
++    }),
++    injectEvent: build.mutation<InjectResult, InjectInput>({
++      query: (body) => ({ url: '/admin/events', method: 'POST', body }),
++      invalidatesTags: ['Events', 'Deliveries', 'MyDeliveries'],
++    }),
+   }),
+ })
+ 
+ export const {
+   useGetMeQuery,
+   useGetUsersQuery,
+   useGetRulesQuery,
+   useCreateRuleMutation,
+   useUpdateRuleMutation,
+   useDeleteRuleMutation,
+   useGetChannelsQuery,
+   useCreateChannelMutation,
+   useUpdateChannelMutation,
+   useDeleteChannelMutation,
+   useTestChannelMutation,
+   useGetMyDeliveriesQuery,
++  useGetAdminUsersQuery,
++  useGetAdminRulesQuery,
++  useGetEventsQuery,
++  useGetDeliveriesQuery,
++  useRetryDeliveryMutation,
++  useGetSourcesQuery,
++  useUpdateSourceMutation,
++  usePollSourceMutation,
++  useInjectEventMutation,
+ } = api
+ 
+ /** Message for a failed RTK Query call: the API's `error` plus any zod issue messages. */
+ export function errorText(err: unknown): string {
+   const data = (err as { data?: { error?: string; issues?: { path?: unknown[]; message?: string }[] } })?.data
+   if (!data?.error) return 'Request failed'
+   const issues = (data.issues ?? []).map((i) => `${i.path?.join('.') ?? ''}: ${i.message ?? ''}`)
+   return [data.error, ...issues].join(' | ')
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+index 4f150be..9417bc1 100644
+--- a/web/src/components/AppShell.test.tsx
++++ b/web/src/components/AppShell.test.tsx
+@@ -8,22 +8,24 @@ import AppShell from './AppShell'
+ const users = [
+   { id: 1, name: 'Anna' },
+   { id: 2, name: 'Bela' },
+   { id: 3, name: 'Cili' },
+ ]
+ const meById: Record<string, object> = {
+   '1': { id: 1, name: 'Anna', email: 'a@x', homeCountry: 'HU', isAdmin: true },
+   '2': { id: 2, name: 'Bela', email: 'b@x', homeCountry: 'DE', isAdmin: false },
++  '3': { id: 3, name: 'Cili', email: 'c@x', homeCountry: 'AT', isAdmin: true },
+ }
+ 
+ function mockFetch() {
+   vi.stubGlobal(
+     'fetch',
+     vi.fn(async (req: Request) => {
++      if (req.url.endsWith('/api/me') && req.headers.get('X-User-Id') === '3') await new Promise((r) => setTimeout(r, 100)) // /me for Cili lands late
+       const body = req.url.endsWith('/api/users') ? users : req.url.endsWith('/api/me') ? meById[req.headers.get('X-User-Id') ?? ''] : []
+       return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
+     }),
+   )
+ }
+ 
+ afterEach(() => {
+   cleanup()
+@@ -68,30 +70,43 @@ describe('AppShell', () => {
+     expect(await screen.findByText(/DE/)).toBeTruthy()
+   })
+ 
+   it('falls back to My alerts when the active Admin tab disappears after switching to a non-admin', async () => {
+     renderShell(1)
+     const admin = await screen.findByRole('tab', { name: 'Admin' })
+     fireEvent.mouseDown(admin)
+     fireEvent.click(admin)
+-    expect(await screen.findByText('Coming in Task 13')).toBeTruthy()
++    expect(await screen.findByRole('button', { name: 'Inject event' })).toBeTruthy()
+ 
+     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+     fireEvent.click((await screen.findAllByRole('option'))[1])
+     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
+     expect((await screen.findByRole('tab', { name: 'My alerts' })).getAttribute('aria-selected')).toBe('true')
+     expect(await screen.findByText('No rules yet.')).toBeTruthy()
+ 
+     // switching back to the admin must not resurrect the Admin tab
+     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+     fireEvent.click((await screen.findAllByRole('option'))[0])
+     await screen.findByRole('tab', { name: 'Admin' })
+     expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true')
+     expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false')
+   })
+ 
++  it('keeps the Admin tab when switching from one admin to another while /me reloads', async () => {
++    renderShell(1)
++    const admin = await screen.findByRole('tab', { name: 'Admin' })
++    fireEvent.mouseDown(admin)
++    fireEvent.click(admin)
++    await screen.findByRole('button', { name: 'Inject event' })
++
++    fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
++    fireEvent.click((await screen.findAllByRole('option'))[2])
++    expect(await screen.findByText(/AT/)).toBeTruthy()
++    expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('true')
++  })
++
+   it('shows the placeholder in the user switcher until users load, then the selected name', async () => {
+     renderShell(2)
+     expect(screen.getByRole('combobox').textContent).toBe('Select user')
+     await waitFor(() => expect(screen.getByRole('combobox').textContent).toBe('Bela'))
+   })
+ })
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+index c6cb843..465c515 100644
+--- a/web/src/components/AppShell.tsx
++++ b/web/src/components/AppShell.tsx
+@@ -1,31 +1,33 @@
+ import { useState } from 'react'
+ import { useGetMeQuery } from '@/api'
+ import UserSwitcher from '@/components/UserSwitcher'
++import AdminLayout from '@/pages/admin/AdminLayout'
+ import Channels from '@/pages/Channels'
+ import History from '@/pages/History'
+ import Rules from '@/pages/Rules'
+ import { Badge } from '@/components/ui/badge'
+ import { Button } from '@/components/ui/button'
+ import { Toaster } from '@/components/ui/sonner'
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+ 
+ const tabs = [
+   { value: 'alerts', label: 'My alerts', content: <Rules /> },
+   { value: 'channels', label: 'Channels', content: <Channels /> },
+   { value: 'history', label: 'History', content: <History /> },
+ ]
+-const adminTab = { value: 'admin', label: 'Admin', content: <>Coming in Task 13</> }
++const adminTab = { value: 'admin', label: 'Admin', content: <AdminLayout /> }
+ 
+ export default function AppShell() {
+   const { data: me, error, refetch } = useGetMeQuery()
+   const [tab, setTab] = useState('alerts')
+   const visible = me?.isAdmin ? [...tabs, adminTab] : tabs
+-  const active = visible.some((t) => t.value === tab) ? tab : 'alerts' // Admin tab vanishes on switch to non-admin
++  // Admin tab vanishes on switch to non-admin; while `me` reloads (undefined) keep the tab so admin->admin switches don't lose it
++  const active = !me || visible.some((t) => t.value === tab) ? tab : 'alerts'
+   if (active !== tab) setTab(active) // forget the vanished tab so switching back to an admin doesn't resurrect it
+ 
+   let status = <span className="text-muted-foreground">Connecting…</span>
+   if (me) {
+     status = (
+       <span>
+         {me.name} ({me.homeCountry}) {me.isAdmin && <Badge>admin</Badge>}
+       </span>
+diff --git a/web/src/components/InjectEventDialog.tsx b/web/src/components/InjectEventDialog.tsx
+new file mode 100644
+index 0000000..d9960b3
+--- /dev/null
++++ b/web/src/components/InjectEventDialog.tsx
+@@ -0,0 +1,91 @@
++import { useState } from 'react'
++import { toast } from 'sonner'
++import { errorText, useInjectEventMutation } from '@/api'
++import { Button } from '@/components/ui/button'
++import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
++import { Input } from '@/components/ui/input'
++import { Label } from '@/components/ui/label'
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
++import { Slider } from '@/components/ui/slider'
++import type { Category } from '@/types'
++
++export default function InjectEventDialog() {
++  const [inject, { isLoading }] = useInjectEventMutation()
++  const [open, setOpen] = useState(false)
++  const [category, setCategory] = useState<Category>('news')
++  const [title, setTitle] = useState('')
++  const [summary, setSummary] = useState('')
++  const [url, setUrl] = useState('')
++  const [country, setCountry] = useState('')
++  const [severity, setSeverity] = useState(0.5)
++  const [error, setError] = useState<string>()
++
++  async function submit(e: React.FormEvent) {
++    e.preventDefault()
++    setError(undefined)
++    const body = {
++      category, title: title.trim(), severity,
++      ...(summary.trim() && { summary: summary.trim() }),
++      ...(url.trim() && { url: url.trim() }),
++      ...(country.trim() && { country: country.trim().toUpperCase() }),
++    }
++    try {
++      const r = await inject(body).unwrap()
++      toast.success(`${r.deliveriesCreated} deliveries created`)
++      setOpen(false)
++      setTitle(''); setSummary(''); setUrl(''); setCountry('')
++    } catch (err) {
++      setError(errorText(err))
++    }
++  }
++
++  return (
++    <Dialog open={open} onOpenChange={setOpen}>
++      <DialogTrigger asChild>
++        <Button>Inject event</Button>
++      </DialogTrigger>
++      <DialogContent>
++        <DialogHeader>
++          <DialogTitle>Inject event</DialogTitle>
++        </DialogHeader>
++        <form onSubmit={submit} className="flex flex-col gap-3">
++          <div className="flex flex-col gap-1.5">
++            <Label>Category</Label>
++            <Select value={category} onValueChange={(c) => setCategory(c as Category)}>
++              <SelectTrigger aria-label="Category"><SelectValue /></SelectTrigger>
++              <SelectContent>
++                {['news', 'market', 'disaster'].map((c) => (
++                  <SelectItem key={c} value={c}>{c}</SelectItem>
++                ))}
++              </SelectContent>
++            </Select>
++          </div>
++          <div className="flex flex-col gap-1.5">
++            <Label htmlFor="inject-title">Title</Label>
++            <Input id="inject-title" value={title} onChange={(e) => setTitle(e.target.value)} />
++          </div>
++          <div className="flex flex-col gap-1.5">
++            <Label htmlFor="inject-summary">Summary</Label>
++            <Input id="inject-summary" value={summary} onChange={(e) => setSummary(e.target.value)} />
++          </div>
++          <div className="flex flex-col gap-1.5">
++            <Label htmlFor="inject-url">URL</Label>
++            <Input id="inject-url" value={url} onChange={(e) => setUrl(e.target.value)} />
++          </div>
++          <div className="flex flex-col gap-1.5">
++            <Label htmlFor="inject-country">Country (ISO2)</Label>
++            <Input id="inject-country" maxLength={2} placeholder="blank = global" value={country} onChange={(e) => setCountry(e.target.value)} />
++          </div>
++          <div className="flex flex-col gap-1.5">
++            <Label>Severity: {severity.toFixed(2)}</Label>
++            <Slider aria-label="Severity" min={0} max={1} step={0.05} value={[severity]} onValueChange={([v]) => setSeverity(v)} />
++          </div>
++          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
++          <DialogFooter>
++            <Button type="submit" disabled={isLoading}>Inject</Button>
++          </DialogFooter>
++        </form>
++      </DialogContent>
++    </Dialog>
++  )
++}
+diff --git a/web/src/pages/admin/AdminLayout.tsx b/web/src/pages/admin/AdminLayout.tsx
+new file mode 100644
+index 0000000..b0266c8
+--- /dev/null
++++ b/web/src/pages/admin/AdminLayout.tsx
+@@ -0,0 +1,35 @@
++import InjectEventDialog from '@/components/InjectEventDialog'
++import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
++import Deliveries from './Deliveries'
++import Events from './Events'
++import Rules from './Rules'
++import Sources from './Sources'
++import Users from './Users'
++
++const tabs = [
++  { value: 'users', label: 'Users', content: <Users /> },
++  { value: 'rules', label: 'Rules', content: <Rules /> },
++  { value: 'events', label: 'Events', content: <Events /> },
++  { value: 'deliveries', label: 'Deliveries', content: <Deliveries /> },
++  { value: 'sources', label: 'Sources', content: <Sources /> },
++]
++
++export default function AdminLayout() {
++  return (
++    <div className="flex flex-col gap-4">
++      <div className="flex justify-end">
++        <InjectEventDialog />
++      </div>
++      <Tabs defaultValue="users">
++        <TabsList>
++          {tabs.map((t) => (
++            <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
++          ))}
++        </TabsList>
++        {tabs.map((t) => (
++          <TabsContent key={t.value} value={t.value}>{t.content}</TabsContent>
++        ))}
++      </Tabs>
++    </div>
++  )
++}
+diff --git a/web/src/pages/admin/Deliveries.tsx b/web/src/pages/admin/Deliveries.tsx
+new file mode 100644
+index 0000000..56c9e76
+--- /dev/null
++++ b/web/src/pages/admin/Deliveries.tsx
+@@ -0,0 +1,62 @@
++import { useState } from 'react'
++import { errorText, useGetAdminUsersQuery, useGetDeliveriesQuery, useRetryDeliveryMutation } from '@/api'
++import ScoreBreakdown from '@/components/ScoreBreakdown'
++import { Badge } from '@/components/ui/badge'
++import { Button } from '@/components/ui/button'
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
++import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
++
++export default function Deliveries() {
++  const [status, setStatus] = useState('all')
++  const { data = [], isLoading, error } = useGetDeliveriesQuery(status === 'all' ? undefined : status)
++  const { data: users = [] } = useGetAdminUsersQuery()
++  const [retry, { error: retryError }] = useRetryDeliveryMutation()
++  return (
++    <div className="flex flex-col gap-3">
++      <Select value={status} onValueChange={setStatus}>
++        <SelectTrigger className="w-40" aria-label="Status filter"><SelectValue /></SelectTrigger>
++        <SelectContent>
++          {['all', 'pending', 'sent', 'failed'].map((s) => (
++            <SelectItem key={s} value={s}>{s}</SelectItem>
++          ))}
++        </SelectContent>
++      </Select>
++      {(error || retryError) && <p role="alert" className="text-destructive">{errorText(error ?? retryError)}</p>}
++      {isLoading ? (
++        <p className="text-muted-foreground">Loading…</p>
++      ) : data.length === 0 ? (
++        <p className="text-muted-foreground">No deliveries.</p>
++      ) : (
++        <Table>
++          <TableHeader>
++            <TableRow>
++              <TableHead>Time</TableHead>
++              <TableHead>User</TableHead>
++              <TableHead>Event</TableHead>
++              <TableHead>Status</TableHead>
++              <TableHead>Why</TableHead>
++              <TableHead />
++            </TableRow>
++          </TableHeader>
++          <TableBody>
++            {data.map((d) => (
++              <TableRow key={d.id}>
++                <TableCell>{new Date(d.createdAt).toLocaleString()}</TableCell>
++                <TableCell>{users.find((u) => u.id === d.userId)?.name ?? d.userId ?? '-'}</TableCell>
++                <TableCell className="whitespace-normal">{d.event.title}</TableCell>
++                <TableCell className="whitespace-normal">
++                  <Badge variant={d.status === 'failed' ? 'destructive' : 'secondary'}>{d.status}</Badge>
++                  {d.lastError && <div className="text-xs text-destructive">{d.lastError}</div>}
++                </TableCell>
++                <TableCell><ScoreBreakdown b={d.breakdown} /></TableCell>
++                <TableCell>
++                  {d.status === 'failed' && <Button size="sm" variant="outline" onClick={() => retry(d.id)}>Retry</Button>}
++                </TableCell>
++              </TableRow>
++            ))}
++          </TableBody>
++        </Table>
++      )}
++    </div>
++  )
++}
+diff --git a/web/src/pages/admin/Events.tsx b/web/src/pages/admin/Events.tsx
+new file mode 100644
+index 0000000..903bf53
+--- /dev/null
++++ b/web/src/pages/admin/Events.tsx
+@@ -0,0 +1,37 @@
++import { errorText, useGetEventsQuery } from '@/api'
++import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
++
++export default function Events() {
++  const { data = [], isLoading, error } = useGetEventsQuery()
++  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
++  if (error) return <p role="alert" className="text-destructive">{errorText(error)}</p>
++  if (data.length === 0) return <p className="text-muted-foreground">No events yet.</p>
++  return (
++    <Table>
++      <TableHeader>
++        <TableRow>
++          <TableHead>Time</TableHead>
++          <TableHead>Source</TableHead>
++          <TableHead>Title</TableHead>
++          <TableHead>Category</TableHead>
++          <TableHead>Country</TableHead>
++          <TableHead>Severity</TableHead>
++        </TableRow>
++      </TableHeader>
++      <TableBody>
++        {data.map((e) => (
++          <TableRow key={e.id}>
++            <TableCell>{new Date(e.occurredAt).toLocaleString()}</TableCell>
++            <TableCell>{e.source}</TableCell>
++            <TableCell className="whitespace-normal">
++              {e.url ? <a href={e.url} target="_blank" rel="noreferrer" className="underline">{e.title}</a> : e.title}
++            </TableCell>
++            <TableCell>{e.category}</TableCell>
++            <TableCell>{e.country ?? '-'}</TableCell>
++            <TableCell>{e.severity.toFixed(2)}</TableCell>
++          </TableRow>
++        ))}
++      </TableBody>
++    </Table>
++  )
++}
+diff --git a/web/src/pages/admin/Rules.tsx b/web/src/pages/admin/Rules.tsx
+new file mode 100644
+index 0000000..02915b7
+--- /dev/null
++++ b/web/src/pages/admin/Rules.tsx
+@@ -0,0 +1,36 @@
++import { errorText, useGetAdminRulesQuery, useGetAdminUsersQuery } from '@/api'
++import { Badge } from '@/components/ui/badge'
++import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
++
++export default function Rules() {
++  const { data = [], isLoading, error } = useGetAdminRulesQuery()
++  const { data: users = [] } = useGetAdminUsersQuery()
++  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
++  if (error) return <p role="alert" className="text-destructive">{errorText(error)}</p>
++  return (
++    <Table>
++      <TableHeader>
++        <TableRow>
++          <TableHead>User</TableHead>
++          <TableHead>Rule</TableHead>
++          <TableHead>Categories</TableHead>
++          <TableHead>Keywords</TableHead>
++          <TableHead>Threshold</TableHead>
++          <TableHead>State</TableHead>
++        </TableRow>
++      </TableHeader>
++      <TableBody>
++        {data.map((r) => (
++          <TableRow key={r.id}>
++            <TableCell>{users.find((u) => u.id === r.userId)?.name ?? r.userId}</TableCell>
++            <TableCell>{r.name}</TableCell>
++            <TableCell>{r.categories.join(', ')}</TableCell>
++            <TableCell className="whitespace-normal">{r.keywords.join(', ') || '-'}</TableCell>
++            <TableCell>{r.threshold}</TableCell>
++            <TableCell><Badge variant={r.enabled ? 'secondary' : 'outline'}>{r.enabled ? 'enabled' : 'disabled'}</Badge></TableCell>
++          </TableRow>
++        ))}
++      </TableBody>
++    </Table>
++  )
++}
+diff --git a/web/src/pages/admin/Sources.tsx b/web/src/pages/admin/Sources.tsx
+new file mode 100644
+index 0000000..a198c42
+--- /dev/null
++++ b/web/src/pages/admin/Sources.tsx
+@@ -0,0 +1,79 @@
++import { useState } from 'react'
++import { toast } from 'sonner'
++import { errorText, useGetSourcesQuery, usePollSourceMutation, useUpdateSourceMutation } from '@/api'
++import { Button } from '@/components/ui/button'
++import { Input } from '@/components/ui/input'
++import { Switch } from '@/components/ui/switch'
++import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
++import type { Source } from '@/types'
++
++function SourceRow({ s }: { s: Source }) {
++  const [update] = useUpdateSourceMutation()
++  const [poll, { isLoading: polling }] = usePollSourceMutation()
++  const [interval, setInterval] = useState(String(s.pollIntervalS))
++
++  async function pollNow() {
++    try {
++      const r = await poll(s.id).unwrap()
++      if (r.ok) toast.success(`${s.name}: ${r.inserted} new events`)
++      else toast.error(`${s.name} failed: ${r.error}`)
++    } catch (err) {
++      toast.error(`${s.name} failed: ${errorText(err)}`)
++    }
++  }
++  async function save() {
++    try {
++      await update({ id: s.id, pollIntervalS: Number(interval) }).unwrap()
++    } catch (err) {
++      toast.error(errorText(err))
++    }
++  }
++
++  return (
++    <TableRow>
++      <TableCell>{s.name}</TableCell>
++      <TableCell>
++        <Switch aria-label={`Enable source ${s.id}`} checked={s.enabled} onCheckedChange={(enabled) => update({ id: s.id, enabled })} />
++      </TableCell>
++      <TableCell>
++        <div className="flex items-center gap-2">
++          <Input
++            type="number" min={60} max={86400} className="w-24" aria-label={`Poll interval (s) for source ${s.id}`}
++            value={interval} onChange={(e) => setInterval(e.target.value)}
++          />
++          <Button size="sm" variant="outline" aria-label={`Save interval ${s.id}`} disabled={Number(interval) === s.pollIntervalS} onClick={save}>Save</Button>
++        </div>
++      </TableCell>
++      <TableCell>{s.lastPolledAt ? new Date(s.lastPolledAt).toLocaleString() : 'never'}</TableCell>
++      <TableCell className="whitespace-normal text-destructive">{s.lastError}</TableCell>
++      <TableCell>
++        <Button size="sm" aria-label={`Poll now ${s.id}`} disabled={polling} onClick={pollNow}>Poll now</Button>
++      </TableCell>
++    </TableRow>
++  )
++}
++
++export default function Sources() {
++  const { data = [], isLoading, error } = useGetSourcesQuery()
++  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
++  if (error) return <p role="alert" className="text-destructive">{errorText(error)}</p>
++  return (
++    <Table>
++      <TableHeader>
++        <TableRow>
++          <TableHead>Source</TableHead>
++          <TableHead>Enabled</TableHead>
++          <TableHead>Interval (s)</TableHead>
++          <TableHead>Last polled</TableHead>
++          <TableHead>Last error</TableHead>
++          <TableHead />
++        </TableRow>
++      </TableHeader>
++      <TableBody>
++        {data.map((s) => (
++          <SourceRow key={s.id} s={s} />
++        ))}
++      </TableBody>
++    </Table>
++  )
++}
+diff --git a/web/src/pages/admin/Users.tsx b/web/src/pages/admin/Users.tsx
+new file mode 100644
+index 0000000..a47a26a
+--- /dev/null
++++ b/web/src/pages/admin/Users.tsx
+@@ -0,0 +1,33 @@
++import { errorText, useGetAdminUsersQuery } from '@/api'
++import { Badge } from '@/components/ui/badge'
++import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
++
++export default function Users() {
++  const { data = [], isLoading, error } = useGetAdminUsersQuery()
++  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
++  if (error) return <p role="alert" className="text-destructive">{errorText(error)}</p>
++  return (
++    <Table>
++      <TableHeader>
++        <TableRow>
++          <TableHead>ID</TableHead>
++          <TableHead>Name</TableHead>
++          <TableHead>Email</TableHead>
++          <TableHead>Home</TableHead>
++          <TableHead>Role</TableHead>
++        </TableRow>
++      </TableHeader>
++      <TableBody>
++        {data.map((u) => (
++          <TableRow key={u.id}>
++            <TableCell>{u.id}</TableCell>
++            <TableCell>{u.name}</TableCell>
++            <TableCell>{u.email}</TableCell>
++            <TableCell>{u.homeCountry}</TableCell>
++            <TableCell>{u.isAdmin && <Badge>admin</Badge>}</TableCell>
++          </TableRow>
++        ))}
++      </TableBody>
++    </Table>
++  )
++}
+diff --git a/web/src/pages/admin/admin.test.tsx b/web/src/pages/admin/admin.test.tsx
+new file mode 100644
+index 0000000..3c1bb0f
+--- /dev/null
++++ b/web/src/pages/admin/admin.test.tsx
+@@ -0,0 +1,128 @@
++import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { Provider } from 'react-redux'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import InjectEventDialog from '@/components/InjectEventDialog'
++import { Toaster } from '@/components/ui/sonner'
++import { makeStore } from '@/store'
++import Deliveries from './Deliveries'
++import Sources from './Sources'
++
++type Handler = (req: Request, body: unknown) => unknown
++/** Routes by "METHOD /path"; returns [status, json] or json. */
++function mockApi(routes: Record<string, Handler>) {
++  const calls: { key: string; body: unknown }[] = []
++  vi.stubGlobal(
++    'fetch',
++    vi.fn(async (req: Request) => {
++      const u = new URL(req.url)
++      const key = `${req.method} ${u.pathname.replace('/api', '')}`
++      const text = await req.text()
++      const body = text ? JSON.parse(text) : undefined
++      calls.push({ key, body })
++      const out = routes[key]?.(req, body) ?? []
++      const [status, json] = Array.isArray(out) && out.length === 2 && typeof out[0] === 'number' ? out : [200, out]
++      return new Response(JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } })
++    }),
++  )
++  return calls
++}
++const renderPage = (ui: React.ReactElement) =>
++  render(
++    <Provider store={makeStore()}>
++      {ui}
++      <Toaster />
++    </Provider>,
++  )
++afterEach(() => {
++  cleanup()
++  vi.unstubAllGlobals()
++})
++
++const breakdown = { severity: 0.6, proximity: 1, proximityReason: 'home', override: false, importance: 0.6, threshold: 0.5, fires: true }
++const delivery = (id: number, status: string, extra = {}) => ({
++  id, status, attempts: 1, lastError: status === 'failed' ? 'smtp down' : null, createdAt: '2026-10-19T10:00:00Z', sentAt: null,
++  channelId: 1, ruleId: 1, userId: 1, breakdown,
++  event: { id: 9, title: `Event ${id}`, category: 'news', country: 'HU', scope: 'country', url: null, occurredAt: '2026-10-19T10:00:00Z' },
++  ...extra,
++})
++const source = (id: number, extra = {}) => ({
++  id, type: 'rss', name: `Feed ${id}`, enabled: true, pollIntervalS: 300, lastPolledAt: null, lastError: null, baselineAt: null, ...extra,
++})
++
++describe('InjectEventDialog', () => {
++  it('posts the exact body with the country upper-cased and toasts the delivery count', async () => {
++    const calls = mockApi({ 'POST /admin/events': () => [201, { event: { id: 1 }, deliveriesCreated: 2 }] })
++    renderPage(<InjectEventDialog />)
++    fireEvent.click(screen.getByRole('button', { name: 'Inject event' }))
++    fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Flood in Hungary' } })
++    fireEvent.change(screen.getByLabelText('Country (ISO2)'), { target: { value: 'hu' } })
++    const thumb = screen.getByRole('slider')
++    thumb.focus()
++    fireEvent.keyDown(thumb, { key: 'ArrowRight' })
++    fireEvent.keyDown(thumb, { key: 'ArrowRight' })
++    fireEvent.click(screen.getByRole('button', { name: 'Inject' }))
++    expect(await screen.findByText('2 deliveries created')).toBeTruthy()
++    expect(calls.find((c) => c.key === 'POST /admin/events')!.body).toEqual({ category: 'news', title: 'Flood in Hungary', country: 'HU', severity: 0.6 })
++  })
++
++  it('shows the API error inline and keeps the dialog open', async () => {
++    mockApi({ 'POST /admin/events': () => [400, { error: 'invalid request', issues: [{ path: ['country'], message: 'unknown ISO2 country' }] }] })
++    renderPage(<InjectEventDialog />)
++    fireEvent.click(screen.getByRole('button', { name: 'Inject event' }))
++    fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'x' } })
++    fireEvent.click(screen.getByRole('button', { name: 'Inject' }))
++    expect((await screen.findByRole('alert')).textContent).toBe('invalid request | country: unknown ISO2 country')
++  })
++})
++
++describe('Admin Deliveries', () => {
++  it('shows Retry only on failed rows, with the breakdown and error, and POSTs the retry', async () => {
++    const calls = mockApi({
++      'GET /admin/deliveries': () => [delivery(7, 'failed'), delivery(8, 'sent'), delivery(9, 'pending', { breakdown: { ...breakdown, override: true } })],
++      'POST /admin/deliveries/7/retry': () => delivery(7, 'pending'),
++    })
++    renderPage(<Deliveries />)
++    await screen.findByText('Event 7')
++    const retry = screen.getAllByRole('button', { name: 'Retry' })
++    expect(retry).toHaveLength(1)
++    expect(screen.getByText('smtp down')).toBeTruthy()
++    expect(screen.getByText('critical override')).toBeTruthy()
++    fireEvent.click(retry[0])
++    await waitFor(() => expect(calls.some((c) => c.key === 'POST /admin/deliveries/7/retry')).toBe(true))
++  })
++})
++
++describe('Admin Sources', () => {
++  it('sends only {enabled:false} when toggling the switch', async () => {
++    const calls = mockApi({ 'GET /admin/sources': () => [source(3)], 'PATCH /admin/sources/3': () => source(3, { enabled: false }) })
++    renderPage(<Sources />)
++    fireEvent.click(await screen.findByRole('switch', { name: 'Enable source 3' }))
++    await waitFor(() => expect(calls.some((c) => c.key === 'PATCH /admin/sources/3')).toBe(true))
++    expect(calls.find((c) => c.key === 'PATCH /admin/sources/3')!.body).toEqual({ enabled: false })
++  })
++
++  it('sends only pollIntervalS when saving the interval', async () => {
++    const calls = mockApi({ 'GET /admin/sources': () => [source(3)], 'PATCH /admin/sources/3': () => source(3) })
++    renderPage(<Sources />)
++    fireEvent.change(await screen.findByLabelText('Poll interval (s) for source 3'), { target: { value: '600' } })
++    fireEvent.click(screen.getByRole('button', { name: 'Save interval 3' }))
++    await waitFor(() => expect(calls.some((c) => c.key === 'PATCH /admin/sources/3')).toBe(true))
++    expect(calls.find((c) => c.key === 'PATCH /admin/sources/3')!.body).toEqual({ pollIntervalS: 600 })
++  })
++
++  it('Poll now posts and toasts the result, success and failure', async () => {
++    let n = 0
++    const calls = mockApi({
++      'GET /admin/sources': () => [source(3, { enabled: false, lastError: 'HTTP 500' })],
++      'POST /admin/sources/3/poll': () => (n++ ? { ok: false, inserted: 0, error: 'HTTP 503' } : { ok: true, inserted: 4 }),
++    })
++    renderPage(<Sources />)
++    expect(await screen.findByText('HTTP 500')).toBeTruthy()
++    fireEvent.click(screen.getByRole('button', { name: 'Poll now 3' }))
++    expect(await screen.findByText('Feed 3: 4 new events')).toBeTruthy()
++    await waitFor(() => expect((screen.getByRole('button', { name: 'Poll now 3' }) as HTMLButtonElement).disabled).toBe(false)) // disabled while polling
++    fireEvent.click(screen.getByRole('button', { name: 'Poll now 3' }))
++    expect(await screen.findByText('Feed 3 failed: HTTP 503')).toBeTruthy()
++    expect(calls.filter((c) => c.key === 'POST /admin/sources/3/poll')).toHaveLength(2)
++  })
++})
+diff --git a/web/src/types.ts b/web/src/types.ts
+index 56fb97f..4dc1a19 100644
+--- a/web/src/types.ts
++++ b/web/src/types.ts
+@@ -18,8 +18,16 @@ export type MyDelivery = {
+   lastError: string | null
+   createdAt: string
+   sentAt: string | null
+   channelId: number | null
+   ruleId: number | null
+   breakdown: ScoreBreakdown
+   event: { id: number; title: string; category: Category; country: string | null; scope: string; url: string | null; occurredAt: string }
+ }
++export type AdminRule = Rule & { userId: number }
++export type AdminDelivery = MyDelivery & { userId: number | null }
++export type EventRow = { id: number; source: string; externalId: string; category: Category; title: string; summary: string | null; url: string | null; country: string | null; scope: string; severity: number; occurredAt: string }
++export type Source = { id: number; type: string; name: string; enabled: boolean; pollIntervalS: number; lastPolledAt: string | null; lastError: string | null; baselineAt: string | null }
++export type SourcePatch = { id: number; enabled?: boolean; pollIntervalS?: number }
++export type PollResult = { ok: boolean; inserted: number; error?: string }
++export type InjectInput = { category: Category; title: string; summary?: string; url?: string; country?: string; severity: number }
++export type InjectResult = { event: EventRow; deliveriesCreated: number }

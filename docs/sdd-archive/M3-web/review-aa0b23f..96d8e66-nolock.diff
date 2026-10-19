@@ -1,0 +1,672 @@
+96d8e66 feat(web): vite + tailwind + shadcn scaffold with api proxy
+ docs/evidence/m3-web-connection.md |   19 +
+ package-lock.json                  | 9482 ++++++++++++++++++++++++++++++------
+ package.json                       |   14 +-
+ web/.oxlintrc.json                 |    8 +
+ web/components.json                |   25 +
+ web/index.html                     |   12 +
+ web/package.json                   |   34 +
+ web/src/App.tsx                    |   56 +
+ web/src/components/ui/button.tsx   |   66 +
+ web/src/components/ui/card.tsx     |  102 +
+ web/src/index.css                  |  130 +
+ web/src/lib/utils.ts               |    1 +
+ web/src/main.tsx                   |   10 +
+ web/tsconfig.app.json              |   27 +
+ web/tsconfig.json                  |    8 +
+ web/tsconfig.node.json             |   23 +
+ web/vite.config.ts                 |   13 +
+ 17 files changed, 8586 insertions(+), 1444 deletions(-)
+diff --git a/docs/evidence/m3-web-connection.md b/docs/evidence/m3-web-connection.md
+new file mode 100644
+index 0000000..f4a0536
+--- /dev/null
++++ b/docs/evidence/m3-web-connection.md
+@@ -0,0 +1,19 @@
++# M3 Task 11a: web to API connection (real run)
++
++Commands: `DB_PATH=$(mktemp -d)/w.db npm run dev` (background), wait 15 s, then curl through the Vite proxy.
++
++```
++$ curl -s localhost:5173/api/me -H 'X-User-Id: 1'
++{"id":1,"name":"Anna","email":"anna@example.com","homeCountry":"HU","isAdmin":true}
++
++$ curl -s localhost:5173/ | head -5
++<!doctype html>
++<html lang="en">
++  <head>
++    <script type="module">import { injectIntoGlobalHook } from "/@react-refresh";
++injectIntoGlobalHook(window);
++```
++
++Dev log: `[server] World Alerts API on http://127.0.0.1:3000`, `[web] VITE v8.3.4 ready in 142 ms ... http://localhost:5173/`.
++
++Shutdown: killed PIDs from `lsof -tiTCP:3000` and `lsof -tiTCP:5173` (web reported exit 143 = SIGTERM, expected). `lsof -iTCP:3000 -iTCP:5173 -sTCP:LISTEN` printed nothing (no listeners). Repo-root `data/` was not created (temp DB_PATH used).
+diff --git a/package.json b/package.json
+index b16bd23..d38f597 100644
+--- a/package.json
++++ b/package.json
+@@ -1,12 +1,20 @@
+ {
+   "name": "world-alerts",
+   "private": true,
+   "type": "module",
+-  "engines": { "node": ">=24" },
+-  "workspaces": ["server"],
++  "engines": {
++    "node": ">=24"
++  },
++  "workspaces": [
++    "server",
++    "web"
++  ],
+   "scripts": {
+     "test": "npm test -w server -w web --if-present",
+     "typecheck": "npm run typecheck -w server",
+-    "dev": "npm run dev -w server"
++    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\""
++  },
++  "devDependencies": {
++    "concurrently": "^10.0.6"
+   }
+ }
+diff --git a/web/.oxlintrc.json b/web/.oxlintrc.json
+new file mode 100644
+index 0000000..6fa991d
+--- /dev/null
++++ b/web/.oxlintrc.json
+@@ -0,0 +1,8 @@
++{
++  "$schema": "./node_modules/oxlint/configuration_schema.json",
++  "plugins": ["react", "typescript", "oxc"],
++  "rules": {
++    "react/rules-of-hooks": "error",
++    "react/only-export-components": ["warn", { "allowConstantExport": true }]
++  }
++}
+diff --git a/web/components.json b/web/components.json
+new file mode 100644
+index 0000000..5c23ec4
+--- /dev/null
++++ b/web/components.json
+@@ -0,0 +1,25 @@
++{
++  "$schema": "https://ui.shadcn.com/schema.json",
++  "style": "radix-nova",
++  "rsc": false,
++  "tsx": true,
++  "tailwind": {
++    "config": "",
++    "css": "src/index.css",
++    "baseColor": "neutral",
++    "cssVariables": true,
++    "prefix": ""
++  },
++  "iconLibrary": "lucide",
++  "rtl": false,
++  "aliases": {
++    "components": "@/components",
++    "utils": "@/lib/utils",
++    "ui": "@/components/ui",
++    "lib": "@/lib",
++    "hooks": "@/hooks"
++  },
++  "menuColor": "default",
++  "menuAccent": "subtle",
++  "registries": {}
++}
+diff --git a/web/index.html b/web/index.html
+new file mode 100644
+index 0000000..5fb47df
+--- /dev/null
++++ b/web/index.html
+@@ -0,0 +1,12 @@
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>World Alerts</title>
++  </head>
++  <body>
++    <div id="root"></div>
++    <script type="module" src="/src/main.tsx"></script>
++  </body>
++</html>
+diff --git a/web/package.json b/web/package.json
+new file mode 100644
+index 0000000..2f2bcd1
+--- /dev/null
++++ b/web/package.json
+@@ -0,0 +1,34 @@
++{
++  "name": "web",
++  "private": true,
++  "version": "0.0.0",
++  "type": "module",
++  "scripts": {
++    "dev": "vite",
++    "build": "tsc -b && vite build",
++    "lint": "oxlint",
++    "preview": "vite preview"
++  },
++  "dependencies": {
++    "@fontsource-variable/geist": "^5.3.0",
++    "@tailwindcss/vite": "^4.3.3",
++    "class-variance-authority": "^0.7.1",
++    "cn": "^0.5.0",
++    "lucide-react": "^1.59.0",
++    "radix-ui": "^1.8.1",
++    "react": "^19.3.1",
++    "react-dom": "^19.3.1",
++    "shadcn": "^4.22.1",
++    "tailwindcss": "^4.3.3",
++    "tw-animate-css": "^1.4.0"
++  },
++  "devDependencies": {
++    "@types/node": "^24.19.2",
++    "@types/react": "^19.3.0",
++    "@types/react-dom": "^19.3.0",
++    "@vitejs/plugin-react": "^6.1.2",
++    "oxlint": "^1.88.0",
++    "typescript": "~7.0.2",
++    "vite": "^8.3.4"
++  }
++}
+diff --git a/web/src/App.tsx b/web/src/App.tsx
+new file mode 100644
+index 0000000..1e71207
+--- /dev/null
++++ b/web/src/App.tsx
+@@ -0,0 +1,56 @@
++import { useEffect, useState } from 'react'
++import { Button } from '@/components/ui/button'
++import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
++
++type Me = { name: string; homeCountry: string; isAdmin: boolean }
++type Status =
++  | { kind: 'loading' }
++  | { kind: 'ok'; me: Me }
++  | { kind: 'error'; message: string }
++
++export default function App() {
++  const [status, setStatus] = useState<Status>({ kind: 'loading' })
++  const [attempt, setAttempt] = useState(0)
++
++  // shortcut: plain fetch + hard-coded user 1 until RTK Query and the user switcher (Tasks 11b/11c)
++  useEffect(() => {
++    let cancelled = false
++    setStatus({ kind: 'loading' })
++    fetch('/api/me', { headers: { 'X-User-Id': '1' } })
++      .then(async (res) => {
++        if (!res.ok) throw new Error(`HTTP ${res.status}`)
++        return (await res.json()) as Me
++      })
++      .then((me) => !cancelled && setStatus({ kind: 'ok', me }))
++      .catch((e: unknown) => {
++        if (!cancelled) {
++          setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
++        }
++      })
++    return () => {
++      cancelled = true
++    }
++  }, [attempt])
++
++  let text = 'Connecting…'
++  if (status.kind === 'ok') {
++    const { name, homeCountry, isAdmin } = status.me
++    text = `Connected to API as ${name} (${homeCountry}${isAdmin ? ', admin' : ''})`
++  } else if (status.kind === 'error') {
++    text = `API not reachable: ${status.message}`
++  }
++
++  return (
++    <main className="flex min-h-screen items-center justify-center p-4">
++      <Card className="w-full max-w-md">
++        <CardHeader>
++          <CardTitle>World Alerts</CardTitle>
++        </CardHeader>
++        <CardContent className="flex flex-col items-start gap-4">
++          <p>{text}</p>
++          <Button onClick={() => setAttempt((n) => n + 1)}>Retry</Button>
++        </CardContent>
++      </Card>
++    </main>
++  )
++}
+diff --git a/web/src/components/ui/button.tsx b/web/src/components/ui/button.tsx
+new file mode 100644
+index 0000000..18407c9
+--- /dev/null
++++ b/web/src/components/ui/button.tsx
+@@ -0,0 +1,66 @@
++import * as React from "react"
++import { cva, type VariantProps } from "class-variance-authority"
++import { cn } from "cn"
++import { Slot } from "radix-ui"
++
++const buttonVariants = cva(
++  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
++  {
++    variants: {
++      variant: {
++        default: "bg-primary text-primary-foreground hover:bg-primary/80",
++        outline:
++          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
++        secondary:
++          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
++        ghost:
++          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
++        destructive:
++          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
++        link: "text-primary underline-offset-4 hover:underline",
++      },
++      size: {
++        default:
++          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
++        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
++        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
++        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
++        icon: "size-8",
++        "icon-xs":
++          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
++        "icon-sm":
++          "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
++        "icon-lg": "size-9",
++      },
++    },
++    defaultVariants: {
++      variant: "default",
++      size: "default",
++    },
++  }
++)
++
++function Button({
++  className,
++  variant = "default",
++  size = "default",
++  asChild = false,
++  ...props
++}: React.ComponentProps<"button"> &
++  VariantProps<typeof buttonVariants> & {
++    asChild?: boolean
++  }) {
++  const Comp = asChild ? Slot.Root : "button"
++
++  return (
++    <Comp
++      data-slot="button"
++      data-variant={variant}
++      data-size={size}
++      className={cn(buttonVariants({ variant, size, className }))}
++      {...props}
++    />
++  )
++}
++
++export { Button, buttonVariants }
+diff --git a/web/src/components/ui/card.tsx b/web/src/components/ui/card.tsx
+new file mode 100644
+index 0000000..cf02f48
+--- /dev/null
++++ b/web/src/components/ui/card.tsx
+@@ -0,0 +1,102 @@
++import * as React from "react"
++import { cn } from "cn"
++
++function Card({
++  className,
++  size = "default",
++  ...props
++}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
++  return (
++    <div
++      data-slot="card"
++      data-size={size}
++      className={cn(
++        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
++        className
++      )}
++      {...props}
++    />
++  )
++}
++
++function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
++  return (
++    <div
++      data-slot="card-header"
++      className={cn(
++        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-(--card-spacing)",
++        className
++      )}
++      {...props}
++    />
++  )
++}
++
++function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
++  return (
++    <div
++      data-slot="card-title"
++      className={cn(
++        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
++        className
++      )}
++      {...props}
++    />
++  )
++}
++
++function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
++  return (
++    <div
++      data-slot="card-description"
++      className={cn("text-sm text-muted-foreground", className)}
++      {...props}
++    />
++  )
++}
++
++function CardAction({ className, ...props }: React.ComponentProps<"div">) {
++  return (
++    <div
++      data-slot="card-action"
++      className={cn(
++        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
++        className
++      )}
++      {...props}
++    />
++  )
++}
++
++function CardContent({ className, ...props }: React.ComponentProps<"div">) {
++  return (
++    <div
++      data-slot="card-content"
++      className={cn("px-(--card-spacing)", className)}
++      {...props}
++    />
++  )
++}
++
++function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
++  return (
++    <div
++      data-slot="card-footer"
++      className={cn(
++        "flex items-center rounded-b-xl border-t bg-muted/50 p-(--card-spacing)",
++        className
++      )}
++      {...props}
++    />
++  )
++}
++
++export {
++  Card,
++  CardHeader,
++  CardFooter,
++  CardTitle,
++  CardAction,
++  CardDescription,
++  CardContent,
++}
+diff --git a/web/src/index.css b/web/src/index.css
+new file mode 100644
+index 0000000..fb3c7e9
+--- /dev/null
++++ b/web/src/index.css
+@@ -0,0 +1,130 @@
++@import "tailwindcss";
++@import "tw-animate-css";
++@import "shadcn/tailwind.css";
++@import "@fontsource-variable/geist";
++
++@custom-variant dark (&:is(.dark *));
++
++@theme inline {
++    --font-heading: var(--font-sans);
++    --font-sans: 'Geist Variable', sans-serif;
++    --color-sidebar-ring: var(--sidebar-ring);
++    --color-sidebar-border: var(--sidebar-border);
++    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
++    --color-sidebar-accent: var(--sidebar-accent);
++    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
++    --color-sidebar-primary: var(--sidebar-primary);
++    --color-sidebar-foreground: var(--sidebar-foreground);
++    --color-sidebar: var(--sidebar);
++    --color-chart-5: var(--chart-5);
++    --color-chart-4: var(--chart-4);
++    --color-chart-3: var(--chart-3);
++    --color-chart-2: var(--chart-2);
++    --color-chart-1: var(--chart-1);
++    --color-ring: var(--ring);
++    --color-input: var(--input);
++    --color-border: var(--border);
++    --color-destructive: var(--destructive);
++    --color-accent-foreground: var(--accent-foreground);
++    --color-accent: var(--accent);
++    --color-muted-foreground: var(--muted-foreground);
++    --color-muted: var(--muted);
++    --color-secondary-foreground: var(--secondary-foreground);
++    --color-secondary: var(--secondary);
++    --color-primary-foreground: var(--primary-foreground);
++    --color-primary: var(--primary);
++    --color-popover-foreground: var(--popover-foreground);
++    --color-popover: var(--popover);
++    --color-card-foreground: var(--card-foreground);
++    --color-card: var(--card);
++    --color-foreground: var(--foreground);
++    --color-background: var(--background);
++    --radius-sm: calc(var(--radius) * 0.6);
++    --radius-md: calc(var(--radius) * 0.8);
++    --radius-lg: var(--radius);
++    --radius-xl: calc(var(--radius) * 1.4);
++    --radius-2xl: calc(var(--radius) * 1.8);
++    --radius-3xl: calc(var(--radius) * 2.2);
++    --radius-4xl: calc(var(--radius) * 2.6);
++}
++
++:root {
++    --background: oklch(1 0 0);
++    --foreground: oklch(0.145 0 0);
++    --card: oklch(1 0 0);
++    --card-foreground: oklch(0.145 0 0);
++    --popover: oklch(1 0 0);
++    --popover-foreground: oklch(0.145 0 0);
++    --primary: oklch(0.205 0 0);
++    --primary-foreground: oklch(0.985 0 0);
++    --secondary: oklch(0.97 0 0);
++    --secondary-foreground: oklch(0.205 0 0);
++    --muted: oklch(0.97 0 0);
++    --muted-foreground: oklch(0.556 0 0);
++    --accent: oklch(0.97 0 0);
++    --accent-foreground: oklch(0.205 0 0);
++    --destructive: oklch(0.577 0.245 27.325);
++    --border: oklch(0.922 0 0);
++    --input: oklch(0.922 0 0);
++    --ring: oklch(0.708 0 0);
++    --chart-1: oklch(0.87 0 0);
++    --chart-2: oklch(0.556 0 0);
++    --chart-3: oklch(0.439 0 0);
++    --chart-4: oklch(0.371 0 0);
++    --chart-5: oklch(0.269 0 0);
++    --radius: 0.625rem;
++    --sidebar: oklch(0.985 0 0);
++    --sidebar-foreground: oklch(0.145 0 0);
++    --sidebar-primary: oklch(0.205 0 0);
++    --sidebar-primary-foreground: oklch(0.985 0 0);
++    --sidebar-accent: oklch(0.97 0 0);
++    --sidebar-accent-foreground: oklch(0.205 0 0);
++    --sidebar-border: oklch(0.922 0 0);
++    --sidebar-ring: oklch(0.708 0 0);
++}
++
++.dark {
++    --background: oklch(0.145 0 0);
++    --foreground: oklch(0.985 0 0);
++    --card: oklch(0.205 0 0);
++    --card-foreground: oklch(0.985 0 0);
++    --popover: oklch(0.205 0 0);
++    --popover-foreground: oklch(0.985 0 0);
++    --primary: oklch(0.922 0 0);
++    --primary-foreground: oklch(0.205 0 0);
++    --secondary: oklch(0.269 0 0);
++    --secondary-foreground: oklch(0.985 0 0);
++    --muted: oklch(0.269 0 0);
++    --muted-foreground: oklch(0.708 0 0);
++    --accent: oklch(0.269 0 0);
++    --accent-foreground: oklch(0.985 0 0);
++    --destructive: oklch(0.704 0.191 22.216);
++    --border: oklch(1 0 0 / 10%);
++    --input: oklch(1 0 0 / 15%);
++    --ring: oklch(0.556 0 0);
++    --chart-1: oklch(0.87 0 0);
++    --chart-2: oklch(0.556 0 0);
++    --chart-3: oklch(0.439 0 0);
++    --chart-4: oklch(0.371 0 0);
++    --chart-5: oklch(0.269 0 0);
++    --sidebar: oklch(0.205 0 0);
++    --sidebar-foreground: oklch(0.985 0 0);
++    --sidebar-primary: oklch(0.488 0.243 264.376);
++    --sidebar-primary-foreground: oklch(0.985 0 0);
++    --sidebar-accent: oklch(0.269 0 0);
++    --sidebar-accent-foreground: oklch(0.985 0 0);
++    --sidebar-border: oklch(1 0 0 / 10%);
++    --sidebar-ring: oklch(0.556 0 0);
++}
++
++@layer base {
++  * {
++    @apply border-border outline-ring/50;
++    }
++  body {
++    @apply bg-background text-foreground;
++    }
++  html {
++    @apply font-sans;
++    }
++}
+\ No newline at end of file
+diff --git a/web/src/lib/utils.ts b/web/src/lib/utils.ts
+new file mode 100644
+index 0000000..f815ded
+--- /dev/null
++++ b/web/src/lib/utils.ts
+@@ -0,0 +1 @@
++export { cn } from "cn"
+diff --git a/web/src/main.tsx b/web/src/main.tsx
+new file mode 100644
+index 0000000..bef5202
+--- /dev/null
++++ b/web/src/main.tsx
+@@ -0,0 +1,10 @@
++import { StrictMode } from 'react'
++import { createRoot } from 'react-dom/client'
++import './index.css'
++import App from './App.tsx'
++
++createRoot(document.getElementById('root')!).render(
++  <StrictMode>
++    <App />
++  </StrictMode>,
++)
+diff --git a/web/tsconfig.app.json b/web/tsconfig.app.json
+new file mode 100644
+index 0000000..cdd2a82
+--- /dev/null
++++ b/web/tsconfig.app.json
+@@ -0,0 +1,27 @@
++{
++  "compilerOptions": {
++    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
++    "target": "es2023",
++    "lib": ["ES2023", "DOM"],
++    "module": "esnext",
++    "types": ["vite/client"],
++    "allowArbitraryExtensions": true,
++    "skipLibCheck": true,
++    "paths": { "@/*": ["./src/*"] },
++
++    /* Bundler mode */
++    "moduleResolution": "bundler",
++    "allowImportingTsExtensions": true,
++    "verbatimModuleSyntax": true,
++    "moduleDetection": "force",
++    "noEmit": true,
++    "jsx": "react-jsx",
++
++    /* Linting */
++    "noUnusedLocals": true,
++    "noUnusedParameters": true,
++    "erasableSyntaxOnly": true,
++    "noFallthroughCasesInSwitch": true
++  },
++  "include": ["src"]
++}
+diff --git a/web/tsconfig.json b/web/tsconfig.json
+new file mode 100644
+index 0000000..fe443dc
+--- /dev/null
++++ b/web/tsconfig.json
+@@ -0,0 +1,8 @@
++{
++  "files": [],
++  "compilerOptions": { "paths": { "@/*": ["./src/*"] } },
++  "references": [
++    { "path": "./tsconfig.app.json" },
++    { "path": "./tsconfig.node.json" }
++  ]
++}
+diff --git a/web/tsconfig.node.json b/web/tsconfig.node.json
+new file mode 100644
+index 0000000..8455dcb
+--- /dev/null
++++ b/web/tsconfig.node.json
+@@ -0,0 +1,23 @@
++{
++  "compilerOptions": {
++    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
++    "target": "es2023",
++    "lib": ["ES2023"],
++    "types": ["node"],
++    "skipLibCheck": true,
++
++    /* Bundler mode */
++    "module": "nodenext",
++    "allowImportingTsExtensions": true,
++    "verbatimModuleSyntax": true,
++    "moduleDetection": "force",
++    "noEmit": true,
++
++    /* Linting */
++    "noUnusedLocals": true,
++    "noUnusedParameters": true,
++    "erasableSyntaxOnly": true,
++    "noFallthroughCasesInSwitch": true
++  },
++  "include": ["vite.config.ts"]
++}
+diff --git a/web/vite.config.ts b/web/vite.config.ts
+new file mode 100644
+index 0000000..1c885b4
+--- /dev/null
++++ b/web/vite.config.ts
+@@ -0,0 +1,13 @@
++import { fileURLToPath } from 'node:url'
++import tailwindcss from '@tailwindcss/vite'
++import react from '@vitejs/plugin-react'
++import { defineConfig } from 'vite'
++
++// https://vite.dev/config/
++export default defineConfig({
++  plugins: [react(), tailwindcss()],
++  resolve: {
++    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
++  },
++  server: { proxy: { '/api': 'http://localhost:3000' } },
++})

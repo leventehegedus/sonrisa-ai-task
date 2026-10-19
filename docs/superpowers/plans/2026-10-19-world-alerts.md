@@ -331,7 +331,64 @@ Each branch ends with: `npm test` green → a code-review subagent (`superpowers
 - [ ] **Step 6: Commit** `feat(api): admin routes, manual inject, server entry`
 - [ ] **Step 7: Milestone gate M2** (as in M1) on `feat/api`.
 
-### Task 11: Web scaffold, store, user switcher
+### Task 11a: Web scaffold, Tailwind, shadcn, root wiring, API connection
+
+> **Split on 2026-10-19 (prompt 016, D-023).** The original Task 11 (below, kept for reference) is now three tasks: **11a** (this one, scaffold and API connection, no Redux), **11b** (Redux store, session slice, RTK Query `api.ts`, types; deferred), and **11c** (UserSwitcher and app shell; deferred). The user will revisit 11b and 11c.
+
+**Files:**
+- Create: `web/` from `npm create vite@latest web -- --template react-ts` (demo content removed), Tailwind 4 through `@tailwindcss/vite`, shadcn init (**Radix**) with **only** `button` and `card`, plus `web/src/App.tsx` showing the API connection status
+- Modify: root `package.json` (workspaces `["server","web"]`, `dev` = `concurrently` running both, `test` runs both workspaces, `concurrently` devDependency), `web/vite.config.ts` (`/api` → `http://localhost:3000` proxy, `@` alias)
+
+**Interfaces:**
+- Produces: a working `web` workspace that later tasks add pages to. No state management yet.
+- `App.tsx` does one plain `fetch('/api/me', { headers: { 'X-User-Id': '1' } })` and renders a shadcn Card: "Connected as Anna (HU, admin)" or the error text. Marked `// shortcut: plain fetch + hard-coded user 1 until RTK Query and the user switcher (Tasks 11b/11c)`.
+
+- [ ] **Step 1:** Check the tooling first: record `npm view create-vite version` and `npx shadcn@latest init --help`, use non-interactive flags, and confirm by grep that `button` imports from `radix-ui` / `@radix-ui/*`.
+- [ ] **Step 2:** Scaffold, Tailwind and shadcn as above. `npm run build -w web` exits 0.
+- [ ] **Step 3:** Root wiring and the Vite proxy. `npm test` at the root still passes (server 214, web: none, or one trivial test if vitest is added).
+- [ ] **Step 4: Real check.** Run `npm run dev` with a temp `DB_PATH`. `curl -s localhost:5173/api/me -H 'X-User-Id: 1'` returns Anna through the proxy, and `curl -s localhost:5173/` returns the app's HTML. Stop everything, delete `data/`, and confirm no listeners on 3000/5173. Paste the output into `docs/evidence/m3-web-connection.md`.
+- [ ] **Step 5: Commit** `feat(web): vite + tailwind + shadcn scaffold with api proxy`
+
+### Task 11b: Redux store, session, RTK Query base, `/api/users`
+
+> Added 2026-10-19 (prompt 020, D-025). Endpoints are added **per page**: 11b defines only `getMe` and `getUsers`; Tasks 12 and 13 add the endpoints their pages use.
+
+**Files:**
+- Create: `web/src/store.ts`, `web/src/session.ts`, `web/src/api.ts`, `web/src/types.ts`, `web/vitest.config.ts` (or a `test` block in vite.config), `web/src/api.test.ts`
+- Modify: `web/src/main.tsx` (wrap in `<Provider store>`), `web/src/App.tsx` (replace the plain fetch with `useGetMeQuery`; remove its `shortcut:` comment), `web/package.json` (`test: vitest run`; dev deps `vitest@5 jsdom @testing-library/react`)
+- Server: `server/src/http/user-routes.ts`: `GET /api/users` for any identified user, returning `[{ id, name }]` only (no email, no home country, no admin flag); a test in `server/test/api-user.test.ts`
+
+**Interfaces:**
+- `session.ts`: `sessionSlice` with `{ userId: number }` (default 1; localStorage key `wa.userId`, every read and write in try/catch), action `setUser(id)`, thunk `switchUser(id)` = `dispatch(setUser(id))` then `dispatch(api.util.resetApiState())`.
+- `api.ts`: ONE `createApi({ reducerPath: 'api', baseQuery: fetchBaseQuery({ baseUrl: '/api', prepareHeaders: (h, { getState }) => h.set('X-User-Id', String(getState().session.userId)) }), tagTypes: ['Me','Users','Rules','Channels','MyDeliveries','AdminUsers','AdminRules','Events','Deliveries','Sources'], endpoints })`. Endpoints now: `getMe` (GET `/me`, provides `Me`) and `getUsers` (GET `/users`, provides `Users`). Export the hooks.
+- `types.ts`: `Me`, `UserSummary { id; name }`, and `ApiError { error: string; issues?: unknown[] }`, marked `// shortcut: hand-copied API types, share them from the server if they drift`.
+- `store.ts`: `configureStore` with `session` + `api.reducer` + `api.middleware`; exports `RootState`, `AppDispatch`, and typed `useAppDispatch` / `useAppSelector`.
+
+- [ ] **Step 1: Failing tests (stubs first, R-P9):**
+  - `api.test.ts`: with a fresh store and a mocked global `fetch`, `getMe` sends `X-User-Id: 1`. After `switchUser(2)`, a new `getMe` sends `X-User-Id: 2`, and the cached state from user 1 is gone (`api.util.resetApiState` ran).
+  - Server: `GET /api/users` as non-admin user 2 → 200, with exactly the keys `id` and `name`.
+- [ ] **Step 2:** Implement. `npm test` at the root runs both workspaces and is green; `npm run build -w web` exits 0.
+- [ ] **Step 3: Commit** `feat(web): redux store, session slice, rtk query base; feat(api): GET /api/users`
+
+### Task 11c: User switcher and app shell
+
+**Files:**
+- Create: `web/src/components/UserSwitcher.tsx`, `web/src/components/AppShell.tsx`, `web/src/components/AppShell.test.tsx`
+- Add shadcn components: `select`, `tabs` (non-interactive CLI; confirm Radix imports by grep)
+- Modify: `web/src/App.tsx` (render `AppShell`)
+
+**Interfaces:**
+- `UserSwitcher`: a shadcn `Select` listing `useGetUsersQuery()`; the selected value is `session.userId`; on change, `dispatch(switchUser(id))`. Marked `// shortcut: dev user switcher stands in for login`.
+- `AppShell`: a header with "World Alerts", the current user (`useGetMeQuery`: name, home country, an "admin" badge text when `isAdmin`) and `UserSwitcher`; below it shadcn `Tabs` (**plain tabs, no router**, D-025): `My alerts`, `Channels`, `History`, plus `Admin` **only when `me.isAdmin`**. Each tab panel is a placeholder ("Coming in Task 12" / "Coming in Task 13").
+- [ ] **Step 1: Failing tests:** render `AppShell` in a store with mocked `fetch` (`/api/me`, `/api/users`):
+  - As admin (user 1), the Admin tab is visible.
+  - As non-admin (user 2), the Admin tab is absent.
+  - The switcher lists the 3 users.
+- [ ] **Step 2:** Implement; tests green; `npm run build -w web` exits 0.
+- [ ] **Step 3: Real check:** `npm run dev` with a temp `DB_PATH`, then `curl localhost:5173/api/users -H 'X-User-Id: 2'`. Stop everything, delete `data/`, no listeners left. Append to `docs/evidence/m3-web-connection.md`.
+- [ ] **Step 4: Commit** `feat(web): user switcher and app shell with tabs`
+
+### Task 11 (original, superseded by 11a/11b/11c): Web scaffold, store, user switcher
 
 **Files:**
 - Create: `web/` from `npm create vite@latest web -- --template react-ts`, then Tailwind 4 through `@tailwindcss/vite`, then `npx shadcn@latest init` (pick **Radix** as the primitive library and the default style). Add components: `button card input label select slider switch table tabs dialog badge checkbox sonner`.
@@ -353,6 +410,8 @@ Each branch ends with: `npm test` green → a code-review subagent (`superpowers
 
 ### Task 12: User pages: My alerts, Channels, History
 
+> **Amended 2026-10-19 (D-025):** this task adds its own RTK Query endpoints to `web/src/api.ts`: rules CRUD, channels CRUD + test, my deliveries. Pages render inside the 11c tab panels. The channel PATCH sends `config` only when the user typed a new one (R-018). Error bodies are `{ error, issues? }`.
+
 **Files:**
 - Create: `web/src/App.tsx` (top nav: My alerts · Channels · History · Admin (admins only); a `react-router` v7 or state-based tabs, executor's choice, logged), `web/src/pages/{Rules,Channels,History}.tsx`, `web/src/components/{RuleForm,ScoreBreakdown}.tsx`
 - Test: `web/src/components/ScoreBreakdown.test.tsx` (`@testing-library/react`)
@@ -371,6 +430,8 @@ Each branch ends with: `npm test` green → a code-review subagent (`superpowers
 - [ ] **Step 6: Commit** `feat(web): user rules, channels, history pages`
 
 ### Task 13: Admin pages
+
+> **Amended 2026-10-19 (D-025):** this task adds the admin RTK Query endpoints. PATCH source uses `pollIntervalS` (D-020). Upper-case ISO2 country input in the inject dialog.
 
 **Files:**
 - Create: `web/src/pages/admin/{AdminLayout,Users,Rules,Events,Deliveries,Sources}.tsx`, `web/src/components/InjectEventDialog.tsx`

@@ -1,0 +1,904 @@
+94474bd feat(web): user rules, channels, history pages
+ docs/evidence/m3-web-connection.md         |  22 +++++
+ package-lock.json                          |  28 ++++++
+ web/package.json                           |   2 +
+ web/src/api.ts                             |  45 +++++++++-
+ web/src/components/AppShell.test.tsx       |  25 ++++--
+ web/src/components/AppShell.tsx            |  16 ++--
+ web/src/components/RuleForm.tsx            |  74 ++++++++++++++++
+ web/src/components/ScoreBreakdown.test.tsx |  25 ++++++
+ web/src/components/ScoreBreakdown.tsx      |  14 +++
+ web/src/components/UserSwitcher.tsx        |   2 +-
+ web/src/components/ui/checkbox.tsx         |  32 +++++++
+ web/src/components/ui/input.tsx            |  18 ++++
+ web/src/components/ui/label.tsx            |  21 +++++
+ web/src/components/ui/slider.tsx           |  56 ++++++++++++
+ web/src/components/ui/sonner.tsx           |  49 +++++++++++
+ web/src/components/ui/switch.tsx           |  32 +++++++
+ web/src/components/ui/table.tsx            | 113 ++++++++++++++++++++++++
+ web/src/pages/Channels.tsx                 | 136 +++++++++++++++++++++++++++++
+ web/src/pages/History.tsx                  |  41 +++++++++
+ web/src/pages/Rules.tsx                    |  74 ++++++++++++++++
+ web/src/pages/pages.test.tsx               | 131 +++++++++++++++++++++++++++
+ web/src/test-setup.ts                      |   9 ++
+ web/src/types.ts                           |  21 +++++
+ web/vitest.config.ts                       |   2 +-
+ 24 files changed, 970 insertions(+), 18 deletions(-)
+diff --git a/docs/evidence/m3-web-connection.md b/docs/evidence/m3-web-connection.md
+index 9492851..7d611f2 100644
+--- a/docs/evidence/m3-web-connection.md
++++ b/docs/evidence/m3-web-connection.md
+@@ -30,8 +30,30 @@ $ API_TARGET=http://localhost:3001 npm run dev -w web -- --port 5174 --strictPor
+ 
+ $ curl -s localhost:5174/api/users -H 'X-User-Id: 2'
+ [{"id":1,"name":"Anna"},{"id":2,"name":"Bence"},{"id":3,"name":"Priya"}]
+ $ curl -s localhost:5174/api/me -H 'X-User-Id: 2'
+ {"id":2,"name":"Bence","email":"bence@example.com","homeCountry":"HU","isAdmin":false}
+ ```
+ 
+ Shutdown: killed only PIDs 75865 (:3001) and 75863 (:5174). `lsof -iTCP:3001 -iTCP:5174 -sTCP:LISTEN` printed nothing. The pre-existing :3000 listener (PID 74488) and `data/` were not touched.
++
++# M3 Task 12: user pages (real run)
++
++Isolated API on :3001 with a temp DB, Vite on :5174 proxying to it; all calls go through the Vite proxy as user 2 (Bence). The user's :3000/:5173 and `data/alerts.db` were not touched. The repo-root `data/outbox` already held 18 files; only the one this run created was removed.
++
++```
++$ curl -X POST localhost:5174/api/rules -d '{"name":"Low bar","categories":["disaster"],"keywords":["quake"],"threshold":0.3,"channelIds":[]}'
++{"id":4,"userId":2,"name":"Low bar","categories":["disaster"],"keywords":["quake"],"threshold":0.3,"channelIds":[],"enabled":true}
++$ curl -X POST localhost:5174/api/channels -d '{"type":"email","config":{}}'
++{"id":4,"type":"email","config":{"to":"bence@example.com"},"enabled":true}
++$ curl -X POST localhost:5174/api/channels/4/test
++{"ok":true}
++$ ls data/outbox  (diff vs before)
++> 1792446921467-f2746205-bence@example.com.json
++  {"from":{...},"to":[{"address":"bence@example.com"}],"subject":"[World Alerts] World Alerts test message",...}
++$ curl -X POST localhost:5174/api/channels -d '{"type":"slack","config":{"webhookUrl":"https://hooks.slack.com/services/T/B/secret1234"}}'
++{"id":5,"type":"slack","config":{"webhookUrl":"https://hooks.slack.com/…/1234"},"enabled":true}
++$ curl -X PATCH localhost:5174/api/channels/5 -d '{"config":{"webhookUrl":"https://hooks.slack.com/…/1234"}}'   # the masked value, which the UI never sends
++{"error":"invalid request","issues":[{"code":"custom","path":["webhookUrl"],"message":"must be a Slack webhook URL"},{"code":"custom","path":["webhookUrl"],"message":"must not be the masked form"}]}
++```
++
++Shutdown: killed the listeners on :3001 and :5174; `lsof` printed nothing. The outbox file was deleted. The browser UI itself was not driven here; the page behaviour is covered by the jsdom tests in `web/src/pages/pages.test.tsx`.
+diff --git a/web/package.json b/web/package.json
+index 340480f..1ae7e8c 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -12,21 +12,23 @@
+   },
+   "dependencies": {
+     "@fontsource-variable/geist": "^5.3.0",
+     "@reduxjs/toolkit": "^2.13.0",
+     "@tailwindcss/vite": "^4.3.3",
+     "class-variance-authority": "^0.7.1",
+     "cn": "^0.5.0",
+     "lucide-react": "^1.59.0",
++    "next-themes": "^0.4.6",
+     "radix-ui": "^1.8.1",
+     "react": "^19.3.1",
+     "react-dom": "^19.3.1",
+     "react-redux": "^9.3.0",
+     "shadcn": "^4.22.1",
++    "sonner": "^2.0.8",
+     "tailwindcss": "^4.3.3",
+     "tw-animate-css": "^1.4.0"
+   },
+   "devDependencies": {
+     "@testing-library/react": "^16.3.3",
+     "@types/node": "^24.19.2",
+     "@types/react": "^19.3.0",
+     "@types/react-dom": "^19.3.0",
+diff --git a/web/src/api.ts b/web/src/api.ts
+index 292999b..ff945d0 100644
+--- a/web/src/api.ts
++++ b/web/src/api.ts
+@@ -1,20 +1,61 @@
+ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+-import type { Me, UserSummary } from './types'
++import type { Channel, ChannelInput, ChannelPatch, Me, MyDelivery, Rule, RuleInput, TestResult, UserSummary } from './types'
+ 
+ export const api = createApi({
+   reducerPath: 'api',
+   baseQuery: fetchBaseQuery({
+     baseUrl: `${location.origin}/api`, // absolute: fetchBaseQuery builds a Request, which rejects relative URLs outside browsers
+     prepareHeaders: (headers, { getState }) => {
+       headers.set('X-User-Id', String((getState() as { session: { userId: number } }).session.userId))
+       return headers
+     },
+   }),
+   tagTypes: ['Me', 'Users', 'Rules', 'Channels', 'MyDeliveries', 'AdminUsers', 'AdminRules', 'Events', 'Deliveries', 'Sources'],
+   endpoints: (build) => ({
+     getMe: build.query<Me, void>({ query: () => '/me', providesTags: ['Me'] }),
+     getUsers: build.query<UserSummary[], void>({ query: () => '/users', providesTags: ['Users'] }),
++    getRules: build.query<Rule[], void>({ query: () => '/rules', providesTags: ['Rules'] }),
++    createRule: build.mutation<Rule, RuleInput>({ query: (body) => ({ url: '/rules', method: 'POST', body }), invalidatesTags: ['Rules'] }),
++    updateRule: build.mutation<Rule, { id: number } & Partial<RuleInput>>({
++      query: ({ id, ...body }) => ({ url: `/rules/${id}`, method: 'PATCH', body }),
++      invalidatesTags: ['Rules'],
++    }),
++    deleteRule: build.mutation<void, number>({ query: (id) => ({ url: `/rules/${id}`, method: 'DELETE' }), invalidatesTags: ['Rules'] }),
++    getChannels: build.query<Channel[], void>({ query: () => '/channels', providesTags: ['Channels'] }),
++    createChannel: build.mutation<Channel, ChannelInput>({ query: (body) => ({ url: '/channels', method: 'POST', body }), invalidatesTags: ['Channels'] }),
++    updateChannel: build.mutation<Channel, ChannelPatch>({
++      query: ({ id, ...body }) => ({ url: `/channels/${id}`, method: 'PATCH', body }),
++      invalidatesTags: ['Channels'],
++    }),
++    // a deleted channel is also dropped from rules' channelIds server-side
++    deleteChannel: build.mutation<void, number>({
++      query: (id) => ({ url: `/channels/${id}`, method: 'DELETE' }),
++      invalidatesTags: ['Channels', 'Rules'],
++    }),
++    testChannel: build.mutation<TestResult, number>({ query: (id) => ({ url: `/channels/${id}/test`, method: 'POST' }) }),
++    getMyDeliveries: build.query<MyDelivery[], void>({ query: () => '/my/deliveries', providesTags: ['MyDeliveries'] }),
+   }),
+ })
+ 
+-export const { useGetMeQuery, useGetUsersQuery } = api
++export const {
++  useGetMeQuery,
++  useGetUsersQuery,
++  useGetRulesQuery,
++  useCreateRuleMutation,
++  useUpdateRuleMutation,
++  useDeleteRuleMutation,
++  useGetChannelsQuery,
++  useCreateChannelMutation,
++  useUpdateChannelMutation,
++  useDeleteChannelMutation,
++  useTestChannelMutation,
++  useGetMyDeliveriesQuery,
++} = api
++
++/** Message for a failed RTK Query call: the API's `error` plus any zod issue messages. */
++export function errorText(err: unknown): string {
++  const data = (err as { data?: { error?: string; issues?: { path?: unknown[]; message?: string }[] } })?.data
++  if (!data?.error) return 'Request failed'
++  const issues = (data.issues ?? []).map((i) => `${i.path?.join('.') ?? ''}: ${i.message ?? ''}`)
++  return [data.error, ...issues].join(' | ')
++}
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+index fbdfec4..4f150be 100644
+--- a/web/src/components/AppShell.test.tsx
++++ b/web/src/components/AppShell.test.tsx
+@@ -1,11 +1,11 @@
+ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+ import { Provider } from 'react-redux'
+-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
++import { afterEach, describe, expect, it, vi } from 'vitest'
+ import { setUser } from '@/session'
+ import { makeStore } from '@/store'
+ import AppShell from './AppShell'
+ 
+ const users = [
+   { id: 1, name: 'Anna' },
+   { id: 2, name: 'Bela' },
+   { id: 3, name: 'Cili' },
+@@ -14,28 +14,22 @@ const meById: Record<string, object> = {
+   '1': { id: 1, name: 'Anna', email: 'a@x', homeCountry: 'HU', isAdmin: true },
+   '2': { id: 2, name: 'Bela', email: 'b@x', homeCountry: 'DE', isAdmin: false },
+ }
+ 
+ function mockFetch() {
+   vi.stubGlobal(
+     'fetch',
+     vi.fn(async (req: Request) => {
+-      const body = req.url.endsWith('/api/users') ? users : meById[req.headers.get('X-User-Id') ?? '']
++      const body = req.url.endsWith('/api/users') ? users : req.url.endsWith('/api/me') ? meById[req.headers.get('X-User-Id') ?? ''] : []
+       return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
+     }),
+   )
+ }
+ 
+-// jsdom lacks these; Radix Select calls them when opening
+-beforeAll(() => {
+-  Element.prototype.hasPointerCapture = () => false
+-  Element.prototype.releasePointerCapture = () => {}
+-  Element.prototype.scrollIntoView = () => {}
+-})
+ afterEach(() => {
+   cleanup()
+   vi.unstubAllGlobals()
+   localStorage.clear()
+ })
+ 
+ function renderShell(userId: number) {
+   mockFetch()
+@@ -80,11 +74,24 @@ describe('AppShell', () => {
+     fireEvent.mouseDown(admin)
+     fireEvent.click(admin)
+     expect(await screen.findByText('Coming in Task 13')).toBeTruthy()
+ 
+     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+     fireEvent.click((await screen.findAllByRole('option'))[1])
+     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
+     expect((await screen.findByRole('tab', { name: 'My alerts' })).getAttribute('aria-selected')).toBe('true')
+-    expect(screen.getByRole('tabpanel').textContent).toBe('Coming in Task 12')
++    expect(await screen.findByText('No rules yet.')).toBeTruthy()
++
++    // switching back to the admin must not resurrect the Admin tab
++    fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
++    fireEvent.click((await screen.findAllByRole('option'))[0])
++    await screen.findByRole('tab', { name: 'Admin' })
++    expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true')
++    expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false')
++  })
++
++  it('shows the placeholder in the user switcher until users load, then the selected name', async () => {
++    renderShell(2)
++    expect(screen.getByRole('combobox').textContent).toBe('Select user')
++    await waitFor(() => expect(screen.getByRole('combobox').textContent).toBe('Bela'))
+   })
+ })
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+index 8ec8791..c6cb843 100644
+--- a/web/src/components/AppShell.tsx
++++ b/web/src/components/AppShell.tsx
+@@ -1,27 +1,32 @@
+ import { useState } from 'react'
+ import { useGetMeQuery } from '@/api'
+ import UserSwitcher from '@/components/UserSwitcher'
++import Channels from '@/pages/Channels'
++import History from '@/pages/History'
++import Rules from '@/pages/Rules'
+ import { Badge } from '@/components/ui/badge'
+ import { Button } from '@/components/ui/button'
++import { Toaster } from '@/components/ui/sonner'
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+ 
+ const tabs = [
+-  { value: 'alerts', label: 'My alerts', todo: 'Task 12' },
+-  { value: 'channels', label: 'Channels', todo: 'Task 12' },
+-  { value: 'history', label: 'History', todo: 'Task 12' },
++  { value: 'alerts', label: 'My alerts', content: <Rules /> },
++  { value: 'channels', label: 'Channels', content: <Channels /> },
++  { value: 'history', label: 'History', content: <History /> },
+ ]
+-const adminTab = { value: 'admin', label: 'Admin', todo: 'Task 13' }
++const adminTab = { value: 'admin', label: 'Admin', content: <>Coming in Task 13</> }
+ 
+ export default function AppShell() {
+   const { data: me, error, refetch } = useGetMeQuery()
+   const [tab, setTab] = useState('alerts')
+   const visible = me?.isAdmin ? [...tabs, adminTab] : tabs
+   const active = visible.some((t) => t.value === tab) ? tab : 'alerts' // Admin tab vanishes on switch to non-admin
++  if (active !== tab) setTab(active) // forget the vanished tab so switching back to an admin doesn't resurrect it
+ 
+   let status = <span className="text-muted-foreground">Connecting…</span>
+   if (me) {
+     status = (
+       <span>
+         {me.name} ({me.homeCountry}) {me.isAdmin && <Badge>admin</Badge>}
+       </span>
+     )
+@@ -51,15 +56,16 @@ export default function AppShell() {
+           {visible.map((t) => (
+             <TabsTrigger key={t.value} value={t.value}>
+               {t.label}
+             </TabsTrigger>
+           ))}
+         </TabsList>
+         {visible.map((t) => (
+           <TabsContent key={t.value} value={t.value}>
+-            Coming in {t.todo}
++            {t.content}
+           </TabsContent>
+         ))}
+       </Tabs>
++      <Toaster />
+     </div>
+   )
+ }
+diff --git a/web/src/components/RuleForm.tsx b/web/src/components/RuleForm.tsx
+new file mode 100644
+index 0000000..0b5ba36
+--- /dev/null
++++ b/web/src/components/RuleForm.tsx
+@@ -0,0 +1,74 @@
++import { useState } from 'react'
++import { errorText } from '@/api'
++import { Button } from '@/components/ui/button'
++import { Checkbox } from '@/components/ui/checkbox'
++import { Input } from '@/components/ui/input'
++import { Label } from '@/components/ui/label'
++import { Slider } from '@/components/ui/slider'
++import type { Category, Channel, Rule, RuleInput } from '@/types'
++
++const CATEGORIES: Category[] = ['news', 'market', 'disaster']
++const parseKeywords = (s: string) => s.split(',').map((k) => k.trim()).filter(Boolean)
++const toggle = <T,>(list: T[], v: T, on: boolean) => (on ? [...list, v] : list.filter((x) => x !== v))
++
++type Props = { initial?: Rule; channels: Channel[]; onSubmit: (r: RuleInput) => Promise<unknown>; onCancel: () => void }
++
++export default function RuleForm({ initial, channels, onSubmit, onCancel }: Props) {
++  const [name, setName] = useState(initial?.name ?? '')
++  const [categories, setCategories] = useState<Category[]>(initial?.categories ?? [])
++  const [keywords, setKeywords] = useState(initial?.keywords.join(', ') ?? '')
++  const [threshold, setThreshold] = useState(initial?.threshold ?? 0.5)
++  const [channelIds, setChannelIds] = useState<number[]>(initial?.channelIds ?? [])
++  const [error, setError] = useState<string>()
++
++  async function submit(e: React.FormEvent) {
++    e.preventDefault()
++    setError(undefined)
++    try {
++      await onSubmit({ name, categories, keywords: parseKeywords(keywords), threshold, channelIds, enabled: initial?.enabled ?? true })
++    } catch (err) {
++      setError(errorText(err))
++    }
++  }
++
++  return (
++    <form onSubmit={submit} className="flex flex-col gap-4 rounded-lg border p-4">
++      <div className="flex flex-col gap-1.5">
++        <Label htmlFor="rule-name">Name</Label>
++        <Input id="rule-name" value={name} onChange={(e) => setName(e.target.value)} />
++      </div>
++      <fieldset className="flex flex-wrap gap-4">
++        <legend className="mb-1.5 text-sm font-medium">Categories (none = all)</legend>
++        {CATEGORIES.map((c) => (
++          <Label key={c} className="gap-2">
++            <Checkbox checked={categories.includes(c)} onCheckedChange={(v) => setCategories(toggle(categories, c, v === true))} />
++            {c}
++          </Label>
++        ))}
++      </fieldset>
++      <div className="flex flex-col gap-1.5">
++        <Label htmlFor="rule-keywords">Keywords (comma-separated, none = any)</Label>
++        <Input id="rule-keywords" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="earthquake, bitcoin" />
++      </div>
++      <div className="flex flex-col gap-2">
++        <Label>Threshold: {threshold.toFixed(2)}</Label>
++        <Slider aria-label="Threshold" min={0} max={1} step={0.05} value={[threshold]} onValueChange={([v]) => setThreshold(v)} />
++      </div>
++      <fieldset className="flex flex-wrap gap-4">
++        <legend className="mb-1.5 text-sm font-medium">Channels</legend>
++        {channels.length === 0 && <span className="text-sm text-muted-foreground">No channels yet, add one on the Channels tab.</span>}
++        {channels.map((c) => (
++          <Label key={c.id} className="gap-2">
++            <Checkbox checked={channelIds.includes(c.id)} onCheckedChange={(v) => setChannelIds(toggle(channelIds, c.id, v === true))} />
++            {c.type} #{c.id}
++          </Label>
++        ))}
++      </fieldset>
++      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
++      <div className="flex gap-2">
++        <Button type="submit">{initial ? 'Save' : 'Create rule'}</Button>
++        <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
++      </div>
++    </form>
++  )
++}
+diff --git a/web/src/components/ScoreBreakdown.test.tsx b/web/src/components/ScoreBreakdown.test.tsx
+new file mode 100644
+index 0000000..99ecf66
+--- /dev/null
++++ b/web/src/components/ScoreBreakdown.test.tsx
+@@ -0,0 +1,25 @@
++import { cleanup, render, screen } from '@testing-library/react'
++import { afterEach, describe, expect, it } from 'vitest'
++import ScoreBreakdown from './ScoreBreakdown'
++
++afterEach(cleanup)
++const base = { severity: 0.7, proximity: 0.75, proximityReason: 'subregion', override: false, importance: 0.525, threshold: 0.5, fires: true } as const
++
++describe('ScoreBreakdown', () => {
++  it('shows severity × proximity (reason) = importance and the threshold comparison', () => {
++    render(<ScoreBreakdown b={base} />)
++    expect(screen.getByText(/0\.70 × 0\.75 \(subregion\) = 0\.53/)).toBeTruthy()
++    expect(screen.getByText('≥ 0.5')).toBeTruthy()
++    expect(screen.queryByText('critical override')).toBeNull()
++  })
++
++  it('shows < threshold when it does not fire', () => {
++    render(<ScoreBreakdown b={{ ...base, importance: 0.2, fires: false }} />)
++    expect(screen.getByText('< 0.5')).toBeTruthy()
++  })
++
++  it('shows the critical override badge', () => {
++    render(<ScoreBreakdown b={{ ...base, severity: 0.95, proximity: 0.2, proximityReason: 'elsewhere', override: true, importance: 0.19, fires: true }} />)
++    expect(screen.getByText('critical override')).toBeTruthy()
++  })
++})
+diff --git a/web/src/components/ScoreBreakdown.tsx b/web/src/components/ScoreBreakdown.tsx
+new file mode 100644
+index 0000000..08b13d3
+--- /dev/null
++++ b/web/src/components/ScoreBreakdown.tsx
+@@ -0,0 +1,14 @@
++import { Badge } from '@/components/ui/badge'
++import type { ScoreBreakdown as B } from '@/types'
++
++export default function ScoreBreakdown({ b }: { b: B }) {
++  return (
++    <span className="inline-flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
++      <span>
++        {b.severity.toFixed(2)} × {b.proximity.toFixed(2)} ({b.proximityReason}) = {b.importance.toFixed(2)}
++      </span>
++      <span>{b.fires ? '≥' : '<'} {b.threshold}</span>
++      {b.override && <Badge variant="destructive">critical override</Badge>}
++    </span>
++  )
++}
+diff --git a/web/src/components/UserSwitcher.tsx b/web/src/components/UserSwitcher.tsx
+index 0e2b136..d4017be 100644
+--- a/web/src/components/UserSwitcher.tsx
++++ b/web/src/components/UserSwitcher.tsx
+@@ -5,17 +5,17 @@ import { useAppDispatch, useAppSelector } from '@/store'
+ 
+ // shortcut: dev user switcher stands in for login, replace with real auth
+ export default function UserSwitcher() {
+   const dispatch = useAppDispatch()
+   const userId = useAppSelector((s) => s.session.userId)
+   const { data: users = [] } = useGetUsersQuery()
+ 
+   return (
+-    <Select value={String(userId)} onValueChange={(v) => dispatch(switchUser(Number(v)))}>
++    <Select value={users.length ? String(userId) : ''} onValueChange={(v) => dispatch(switchUser(Number(v)))}>
+       <SelectTrigger className="w-40" aria-label="Switch user">
+         <SelectValue placeholder="Select user" />
+       </SelectTrigger>
+       <SelectContent>
+         {users.map((u) => (
+           <SelectItem key={u.id} value={String(u.id)}>
+             {u.name}
+           </SelectItem>
+diff --git a/web/src/pages/Channels.tsx b/web/src/pages/Channels.tsx
+new file mode 100644
+index 0000000..8f0de2f
+--- /dev/null
++++ b/web/src/pages/Channels.tsx
+@@ -0,0 +1,136 @@
++import { useState } from 'react'
++import { toast } from 'sonner'
++import {
++  errorText,
++  useCreateChannelMutation,
++  useDeleteChannelMutation,
++  useGetChannelsQuery,
++  useTestChannelMutation,
++  useUpdateChannelMutation,
++} from '@/api'
++import { Button } from '@/components/ui/button'
++import { Input } from '@/components/ui/input'
++import { Label } from '@/components/ui/label'
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
++import { Switch } from '@/components/ui/switch'
++import type { Channel } from '@/types'
++
++// the one config field per channel type that the user may type
++const FIELD: Record<string, { key: string; label: string; replace: string }> = {
++  email: { key: 'to', label: 'Email address (blank = your account email)', replace: 'Change address' },
++  slack: { key: 'webhookUrl', label: 'Slack webhook URL', replace: 'Replace webhook' },
++}
++
++function AddChannel() {
++  const [create] = useCreateChannelMutation()
++  const [type, setType] = useState('email')
++  const [value, setValue] = useState('')
++  const [error, setError] = useState<string>()
++  const field = FIELD[type]
++
++  async function submit(e: React.FormEvent) {
++    e.preventDefault()
++    setError(undefined)
++    try {
++      await create({ type, config: value.trim() ? { [field.key]: value.trim() } : {} }).unwrap()
++      setValue('')
++    } catch (err) {
++      setError(errorText(err))
++    }
++  }
++
++  return (
++    <form onSubmit={submit} className="flex flex-col gap-3 rounded-lg border p-4">
++      <div className="flex flex-wrap items-end gap-3">
++        <div className="flex flex-col gap-1.5">
++          <Label>Type</Label>
++          <Select value={type} onValueChange={(t) => { setType(t); setValue('') }}>
++            <SelectTrigger className="w-32" aria-label="Channel type"><SelectValue /></SelectTrigger>
++            <SelectContent>
++              <SelectItem value="email">email</SelectItem>
++              <SelectItem value="slack">slack</SelectItem>
++            </SelectContent>
++          </Select>
++        </div>
++        <div className="flex min-w-60 flex-1 flex-col gap-1.5">
++          <Label htmlFor="channel-value">{field.label}</Label>
++          <Input id="channel-value" value={value} onChange={(e) => setValue(e.target.value)} />
++        </div>
++        <Button type="submit">Add channel</Button>
++      </div>
++      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
++    </form>
++  )
++}
++
++function ChannelRow({ c }: { c: Channel }) {
++  const [update] = useUpdateChannelMutation()
++  const [remove] = useDeleteChannelMutation()
++  const [test, { isLoading: testing }] = useTestChannelMutation()
++  const [replacement, setReplacement] = useState('')
++  const [error, setError] = useState<string>()
++  const field = FIELD[c.type]
++  const shown = Object.values(c.config).join(' ')
++
++  async function sendTest() {
++    try {
++      const r = await test(c.id).unwrap()
++      if (r.ok) toast.success('Test sent')
++      else toast.error(`Test failed: ${r.error ?? 'unknown error'}`)
++    } catch (err) {
++      toast.error(errorText(err))
++    }
++  }
++
++  // config is sent only when the user typed a new value: the masked one would be rejected (R-018)
++  async function replace(e: React.FormEvent) {
++    e.preventDefault()
++    setError(undefined)
++    try {
++      await update({ id: c.id, config: { [field.key]: replacement.trim() } }).unwrap()
++      setReplacement('')
++    } catch (err) {
++      setError(errorText(err))
++    }
++  }
++
++  return (
++    <div className="flex flex-col gap-2 rounded-lg border p-3">
++      <div className="flex flex-wrap items-center justify-between gap-2">
++        <span>
++          <span className="font-medium">{c.type}</span> <span className="text-muted-foreground">#{c.id}</span>{' '}
++          <span data-testid={`config-${c.id}`}>{shown}</span>
++        </span>
++        <div className="flex items-center gap-2">
++          <Switch
++            aria-label={`Enable channel ${c.id}`}
++            checked={c.enabled}
++            onCheckedChange={(enabled) => update({ id: c.id, enabled }).unwrap().catch((err) => toast.error(errorText(err)))}
++          />
++          <Button size="sm" variant="outline" disabled={testing} onClick={sendTest}>Send test</Button>
++          <Button size="sm" variant="destructive" onClick={() => remove(c.id).unwrap().catch((err) => toast.error(errorText(err)))}>Delete</Button>
++        </div>
++      </div>
++      {field && (
++        <form onSubmit={replace} className="flex items-center gap-2">
++          <Input aria-label={field.replace} placeholder={field.replace} value={replacement} onChange={(e) => setReplacement(e.target.value)} />
++          <Button type="submit" size="sm" variant="outline" disabled={!replacement.trim()}>Save</Button>
++        </form>
++      )}
++      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
++    </div>
++  )
++}
++
++export default function Channels() {
++  const { data: channels = [], isLoading, error } = useGetChannelsQuery()
++  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
++  if (error) return <p role="alert" className="text-destructive">{errorText(error)}</p>
++  return (
++    <div className="flex flex-col gap-3">
++      <AddChannel />
++      {channels.length === 0 && <p className="text-muted-foreground">No channels yet.</p>}
++      {channels.map((c) => <ChannelRow key={c.id} c={c} />)}
++    </div>
++  )
++}
+diff --git a/web/src/pages/History.tsx b/web/src/pages/History.tsx
+new file mode 100644
+index 0000000..77d56cb
+--- /dev/null
++++ b/web/src/pages/History.tsx
+@@ -0,0 +1,41 @@
++import { errorText, useGetMyDeliveriesQuery } from '@/api'
++import ScoreBreakdown from '@/components/ScoreBreakdown'
++import { Badge } from '@/components/ui/badge'
++import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
++
++export default function History() {
++  const { data = [], isLoading, error } = useGetMyDeliveriesQuery()
++  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
++  if (error) return <p role="alert" className="text-destructive">{errorText(error)}</p>
++  if (data.length === 0) return <p className="text-muted-foreground">No deliveries yet.</p>
++  return (
++    <Table>
++      <TableHeader>
++        <TableRow>
++          <TableHead>Time</TableHead>
++          <TableHead>Title</TableHead>
++          <TableHead>Category</TableHead>
++          <TableHead>Country</TableHead>
++          <TableHead>Status</TableHead>
++          <TableHead>Why</TableHead>
++        </TableRow>
++      </TableHeader>
++      <TableBody>
++        {data.map((d) => (
++          <TableRow key={d.id}>
++            <TableCell>{new Date(d.createdAt).toLocaleString()}</TableCell>
++            <TableCell className="whitespace-normal">
++              {d.event.url ? <a href={d.event.url} target="_blank" rel="noreferrer" className="underline">{d.event.title}</a> : d.event.title}
++            </TableCell>
++            <TableCell>{d.event.category}</TableCell>
++            <TableCell>{d.event.country ?? '-'}</TableCell>
++            <TableCell>
++              <Badge variant={d.status === 'failed' ? 'destructive' : 'secondary'} title={d.lastError ?? undefined}>{d.status}</Badge>
++            </TableCell>
++            <TableCell><ScoreBreakdown b={d.breakdown} /></TableCell>
++          </TableRow>
++        ))}
++      </TableBody>
++    </Table>
++  )
++}
+diff --git a/web/src/pages/Rules.tsx b/web/src/pages/Rules.tsx
+new file mode 100644
+index 0000000..79ae96b
+--- /dev/null
++++ b/web/src/pages/Rules.tsx
+@@ -0,0 +1,74 @@
++import { useState } from 'react'
++import { toast } from 'sonner'
++import { errorText, useCreateRuleMutation, useDeleteRuleMutation, useGetChannelsQuery, useGetRulesQuery, useUpdateRuleMutation } from '@/api'
++import RuleForm from '@/components/RuleForm'
++import { Badge } from '@/components/ui/badge'
++import { Button } from '@/components/ui/button'
++import { Switch } from '@/components/ui/switch'
++import type { Rule } from '@/types'
++
++export default function Rules() {
++  const { data: rules = [], isLoading, error } = useGetRulesQuery()
++  const { data: channels = [] } = useGetChannelsQuery()
++  const [createRule] = useCreateRuleMutation()
++  const [updateRule] = useUpdateRuleMutation()
++  const [deleteRule] = useDeleteRuleMutation()
++  const [editing, setEditing] = useState<number | 'new' | null>(null)
++  const fail = (err: unknown) => toast.error(errorText(err))
++
++  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
++  if (error) return <p role="alert" className="text-destructive">{errorText(error)}</p>
++
++  return (
++    <div className="flex flex-col gap-3">
++      {editing === 'new' ? (
++        <RuleForm
++          channels={channels}
++          onCancel={() => setEditing(null)}
++          onSubmit={async (r) => {
++            await createRule(r).unwrap()
++            setEditing(null)
++          }}
++        />
++      ) : (
++        <Button className="self-start" onClick={() => setEditing('new')}>New rule</Button>
++      )}
++      {rules.length === 0 && editing !== 'new' && <p className="text-muted-foreground">No rules yet.</p>}
++      {rules.map((r: Rule) =>
++        editing === r.id ? (
++          <RuleForm
++            key={r.id}
++            initial={r}
++            channels={channels}
++            onCancel={() => setEditing(null)}
++            onSubmit={async (b) => {
++              await updateRule({ id: r.id, ...b }).unwrap()
++              setEditing(null)
++            }}
++          />
++        ) : (
++          <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
++            <div className="flex flex-col gap-1">
++              <span className="font-medium">{r.name}</span>
++              <span className="flex flex-wrap gap-1 text-sm text-muted-foreground">
++                threshold {r.threshold}
++                {r.categories.map((c) => <Badge key={c} variant="secondary">{c}</Badge>)}
++                {r.keywords.map((k) => <Badge key={k} variant="outline">{k}</Badge>)}
++                {r.channelIds.length > 0 && <span>→ {r.channelIds.map((id) => `#${id}`).join(', ')}</span>}
++              </span>
++            </div>
++            <div className="flex items-center gap-2">
++              <Switch
++                aria-label={`Enable ${r.name}`}
++                checked={r.enabled}
++                onCheckedChange={(enabled) => updateRule({ id: r.id, enabled }).unwrap().catch(fail)}
++              />
++              <Button size="sm" variant="outline" onClick={() => setEditing(r.id)}>Edit</Button>
++              <Button size="sm" variant="destructive" onClick={() => deleteRule(r.id).unwrap().catch(fail)}>Delete</Button>
++            </div>
++          </div>
++        ),
++      )}
++    </div>
++  )
++}
+diff --git a/web/src/pages/pages.test.tsx b/web/src/pages/pages.test.tsx
+new file mode 100644
+index 0000000..fe5296b
+--- /dev/null
++++ b/web/src/pages/pages.test.tsx
+@@ -0,0 +1,131 @@
++import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { Provider } from 'react-redux'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { makeStore } from '@/store'
++import Channels from './Channels'
++import History from './History'
++import Rules from './Rules'
++
++type Handler = (req: Request, body: unknown) => unknown
++/** Routes by "METHOD /path"; returns [status, json] or json. */
++function mockApi(routes: Record<string, Handler>) {
++  const calls: { key: string; body: unknown }[] = []
++  vi.stubGlobal(
++    'fetch',
++    vi.fn(async (req: Request) => {
++      const key = `${req.method} ${new URL(req.url).pathname.replace('/api', '')}`
++      const text = await req.text()
++      const body = text ? JSON.parse(text) : undefined
++      calls.push({ key, body })
++      const out = routes[key]?.(req, body) ?? []
++      const [status, json] = Array.isArray(out) && out.length === 2 && typeof out[0] === 'number' ? out : [200, out]
++      return new Response(status === 204 ? null : JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } })
++    }),
++  )
++  return calls
++}
++const renderPage = (ui: React.ReactElement) => render(<Provider store={makeStore()}>{ui}</Provider>)
++afterEach(() => {
++  cleanup()
++  vi.unstubAllGlobals()
++})
++
++const email = { id: 5, type: 'email', config: { to: 'a@x.io' }, enabled: true }
++const slack = { id: 6, type: 'slack', config: { webhookUrl: 'https://hooks.slack.com/…/AbCd' }, enabled: true }
++
++describe('Rules page', () => {
++  it('creates a rule with trimmed comma-separated keywords, chosen categories and channels', async () => {
++    const calls = mockApi({ 'GET /channels': () => [email], 'POST /rules': () => [201, {}] })
++    renderPage(<Rules />)
++    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
++    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Quakes' } })
++    fireEvent.click(screen.getByRole('checkbox', { name: 'disaster' }))
++    fireEvent.change(screen.getByLabelText(/Keywords/), { target: { value: ' earthquake , ,árvíz,' } })
++    fireEvent.click(await screen.findByRole('checkbox', { name: 'email #5' }))
++    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
++    await waitFor(() => expect(calls.some((c) => c.key === 'POST /rules')).toBe(true))
++    expect(calls.find((c) => c.key === 'POST /rules')!.body).toEqual({
++      name: 'Quakes', categories: ['disaster'], keywords: ['earthquake', 'árvíz'], threshold: 0.5, channelIds: [5], enabled: true,
++    })
++  })
++
++  it('shows the API error and issue messages inline', async () => {
++    mockApi({ 'POST /rules': () => [400, { error: 'invalid request', issues: [{ path: ['name'], message: 'too small' }] }] })
++    renderPage(<Rules />)
++    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
++    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
++    expect((await screen.findByRole('alert')).textContent).toBe('invalid request | name: too small')
++  })
++
++  it('lists rules and shows the threshold', async () => {
++    mockApi({ 'GET /rules': () => [{ id: 1, name: 'Mine', categories: ['news'], keywords: ['x'], threshold: 0.3, channelIds: [], enabled: true }] })
++    renderPage(<Rules />)
++    expect(await screen.findByText('Mine')).toBeTruthy()
++    expect(screen.getByText(/threshold 0.3/)).toBeTruthy()
++  })
++})
++
++describe('Channels page', () => {
++  it('shows the masked webhook and sends no config when only toggling enabled', async () => {
++    const calls = mockApi({ 'GET /channels': () => [slack], 'PATCH /channels/6': () => ({ ...slack, enabled: false }) })
++    renderPage(<Channels />)
++    expect((await screen.findByTestId('config-6')).textContent).toBe('https://hooks.slack.com/…/AbCd')
++    fireEvent.click(screen.getByRole('switch', { name: 'Enable channel 6' }))
++    await waitFor(() => expect(calls.some((c) => c.key === 'PATCH /channels/6')).toBe(true))
++    expect(calls.find((c) => c.key === 'PATCH /channels/6')!.body).toEqual({ enabled: false })
++  })
++
++  it('sends config on PATCH only after typing a replacement webhook', async () => {
++    const calls = mockApi({ 'GET /channels': () => [slack], 'PATCH /channels/6': () => slack })
++    renderPage(<Channels />)
++    const save = await screen.findByRole('button', { name: 'Save' })
++    expect((save as HTMLButtonElement).disabled).toBe(true)
++    fireEvent.change(screen.getByLabelText('Replace webhook'), { target: { value: 'https://hooks.slack.com/services/T/B/new' } })
++    fireEvent.click(save)
++    await waitFor(() => expect(calls.some((c) => c.key === 'PATCH /channels/6')).toBe(true))
++    expect(calls.find((c) => c.key === 'PATCH /channels/6')!.body).toEqual({ config: { webhookUrl: 'https://hooks.slack.com/services/T/B/new' } })
++  })
++
++  it('adds a Slack channel and shows API issues inline', async () => {
++    const calls = mockApi({
++      'POST /channels': () => [400, { error: 'invalid request', issues: [{ path: ['webhookUrl'], message: 'must be a Slack webhook URL' }] }],
++    })
++    renderPage(<Channels />)
++    fireEvent.pointerDown(await screen.findByRole('combobox', { name: 'Channel type' }), { button: 0, ctrlKey: false, pointerType: 'mouse' })
++    fireEvent.click(await screen.findByRole('option', { name: 'slack' }))
++    fireEvent.change(screen.getByLabelText('Slack webhook URL'), { target: { value: 'nope' } })
++    fireEvent.click(screen.getByRole('button', { name: 'Add channel' }))
++    expect((await screen.findByRole('alert')).textContent).toBe('invalid request | webhookUrl: must be a Slack webhook URL')
++    expect(calls.find((c) => c.key === 'POST /channels')!.body).toEqual({ type: 'slack', config: { webhookUrl: 'nope' } })
++  })
++
++  it('Send test shows a success toast, and the error toast when ok is false', async () => {
++    let result: object = { ok: true }
++    mockApi({ 'GET /channels': () => [email], 'POST /channels/5/test': () => result })
++    const { Toaster } = await import('@/components/ui/sonner')
++    renderPage(<><Toaster /><Channels /></>)
++    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }))
++    expect(await screen.findByText('Test sent')).toBeTruthy()
++    result = { ok: false, error: 'smtp down' }
++    await waitFor(() => expect((screen.getByRole('button', { name: 'Send test' }) as HTMLButtonElement).disabled).toBe(false))
++    fireEvent.click(screen.getByRole('button', { name: 'Send test' }))
++    expect(await screen.findByText('Test failed: smtp down')).toBeTruthy()
++  })
++})
++
++describe('History page', () => {
++  it('renders delivery rows with the score breakdown', async () => {
++    mockApi({
++      'GET /my/deliveries': () => [{
++        id: 1, status: 'sent', attempts: 1, lastError: null, createdAt: '2026-10-19T10:00:00Z', sentAt: null, channelId: 5, ruleId: 1,
++        breakdown: { severity: 0.7, proximity: 0.75, proximityReason: 'subregion', override: false, importance: 0.525, threshold: 0.5, fires: true },
++        event: { id: 9, title: 'Quake in Italy', category: 'disaster', country: 'IT', scope: 'country', url: null, occurredAt: '2026-10-19T09:00:00Z' },
++      }],
++    })
++    renderPage(<History />)
++    expect(await screen.findByText('Quake in Italy')).toBeTruthy()
++    expect(screen.getByText('IT')).toBeTruthy()
++    expect(screen.getByText('sent')).toBeTruthy()
++    expect(screen.getByText(/0\.70 × 0\.75 \(subregion\) = 0\.53/)).toBeTruthy()
++  })
++})
+diff --git a/web/src/test-setup.ts b/web/src/test-setup.ts
+new file mode 100644
+index 0000000..dc2a8da
+--- /dev/null
++++ b/web/src/test-setup.ts
+@@ -0,0 +1,9 @@
++// jsdom lacks these; Radix Select/Slider/Checkbox and sonner call them
++Element.prototype.hasPointerCapture = () => false
++Element.prototype.releasePointerCapture = () => {}
++Element.prototype.scrollIntoView = () => {}
++window.matchMedia ??= ((query: string) => ({
++  matches: false, media: query, onchange: null,
++  addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false,
++})) as unknown as typeof window.matchMedia
++globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} }
+diff --git a/web/src/types.ts b/web/src/types.ts
+index 6f39d91..56fb97f 100644
+--- a/web/src/types.ts
++++ b/web/src/types.ts
+@@ -1,4 +1,25 @@
+ // shortcut: hand-copied API types, share them from the server if they drift
+ export type Me = { id: number; name: string; email: string; homeCountry: string; isAdmin: boolean }
+ export type UserSummary = { id: number; name: string }
+ export type ApiError = { error: string; issues?: unknown[] }
++export type Category = 'news' | 'market' | 'disaster'
++export type ProximityReason = 'home' | 'subregion' | 'continent' | 'elsewhere' | 'global' | 'unknown'
++export type ScoreBreakdown = { severity: number; proximity: number; proximityReason: ProximityReason; override: boolean; importance: number; threshold: number; fires: boolean }
++export type Rule = { id: number; name: string; categories: Category[]; keywords: string[]; threshold: number; channelIds: number[]; enabled: boolean }
++export type RuleInput = Omit<Rule, 'id'>
++export type Channel = { id: number; type: string; config: Record<string, string>; enabled: boolean }
++export type ChannelInput = { type: string; config: Record<string, string>; enabled?: boolean }
++export type ChannelPatch = { id: number; config?: Record<string, string>; enabled?: boolean }
++export type TestResult = { ok: boolean; error?: string }
++export type MyDelivery = {
++  id: number
++  status: 'pending' | 'sent' | 'failed'
++  attempts: number
++  lastError: string | null
++  createdAt: string
++  sentAt: string | null
++  channelId: number | null
++  ruleId: number | null
++  breakdown: ScoreBreakdown
++  event: { id: number; title: string; category: Category; country: string | null; scope: string; url: string | null; occurredAt: string }
++}
+diff --git a/web/vitest.config.ts b/web/vitest.config.ts
+index 59eb25e..28ef5e4 100644
+--- a/web/vitest.config.ts
++++ b/web/vitest.config.ts
+@@ -1,4 +1,4 @@
+ import { mergeConfig } from 'vitest/config'
+ import viteConfig from './vite.config'
+ 
+-export default mergeConfig(viteConfig, { test: { environment: 'jsdom' } })
++export default mergeConfig(viteConfig, { test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'] } })

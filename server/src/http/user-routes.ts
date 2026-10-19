@@ -37,6 +37,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export function userRoutes(db: Database, deps: AppDeps) {
   const { registry } = deps;
   const q = {
+    users: db.prepare(`SELECT id, name FROM users ORDER BY id`),
     rules: db.prepare(`SELECT * FROM rules WHERE user_id = ? ORDER BY id`),
     rule: db.prepare(`SELECT * FROM rules WHERE id = ? AND user_id = ?`),
     insertRule: db.prepare(`INSERT INTO rules (user_id, name, categories, keywords, threshold, channel_ids, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`),
@@ -69,6 +70,8 @@ export function userRoutes(db: Database, deps: AppDeps) {
 
   return async (app: FastifyInstance) => {
     app.get('/me', async (req) => req.user);
+
+    app.get('/users', async () => q.users.all());
 
     app.get('/rules', async (req) => q.rules.all(req.user.id).map(rowToRule));
 
