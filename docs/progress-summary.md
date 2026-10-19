@@ -1,4 +1,8 @@
-# Progress Summary — after Milestone 1
+# Progress Summary
+
+> **Update 2026-10-20: all milestones are complete (M1–M4).** See §5 at the end for the final state. §§1–4 below describe M1 as written after that milestone.
+
+# After Milestone 1
 
 **Date:** 2026-10-19 · **State of `main`:** M1 (core engine) merged, plus fix B1. 140/140 tests pass and the typecheck is clean.
 **Not built yet:** the HTTP API (M2), the web UI (M3), the end-to-end evidence and README (M4).
@@ -155,3 +159,18 @@ Every fix was re-checked by another fresh reviewer. Full list: [`ai-review-log.m
 | **M4 Evidence** | 14 | Screenshots, a verification report (each goal → proof → result), README with one-command start |
 
 **About the interruption:** Task 9 had started when it was stopped. Its partial, unreviewed work is saved in [`sdd-archive/M2-api/interrupted-task-9-partial.patch`](sdd-archive/M2-api/interrupted-task-9-partial.patch) (and in git stash). Task 9 restarts from a clean tree.
+
+
+## 5. Final state (2026-10-20)
+
+| Milestone | What it delivered | Merged |
+|---|---|---|
+| M1 Core engine | sources, scoring, ingest, channels, dispatcher, scheduler | `af9995a`, fix B1 `8a9ed68` |
+| M2 HTTP API | user and admin routes, seed, `main.ts`, real smoke run | `a785991` |
+| M3 Web UI | Vite + React + RTK Query + shadcn/Radix: user switcher, My alerts, Channels, History, Admin (users, rules, events, deliveries + retry, sources, inject) | `ad51de4`, flake fix `6215f2a` |
+| M4 Evidence | Playwright e2e flow with 6 screenshots, [`verification.md`](verification.md), README | this merge |
+
+- **Tests:** server 215, web 25, e2e 1 flow. `npm test` and `npm run e2e`.
+- **Real-browser check:** the M3 whole-branch reviewer drove Chromium via Playwright. Screenshots are in [`evidence/screenshots/`](evidence/screenshots/).
+- **Not verified:** real Slack and real SMTP delivery (dry-run and mocks only), other browsers, a fresh-machine install. See [`verification.md`](verification.md).
+- **Review catches across the whole project:** R-001..R-023 in [`ai-review-log.md`](ai-review-log.md).

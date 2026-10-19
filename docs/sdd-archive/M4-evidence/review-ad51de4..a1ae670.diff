@@ -1,0 +1,173 @@
+# Review package: ad51de4..HEAD
+
+## Commits
+a1ae670 fix(web): no stale tab while user reloads; deflake tab fallback test
+
+## Files changed
+ web/src/components/AppShell.test.tsx |  7 +--
+ web/src/components/AppShell.tsx      | 83 +++++++++++++++++++-----------------
+ 2 files changed, 49 insertions(+), 41 deletions(-)
+
+## Diff
+diff --git a/web/src/components/AppShell.test.tsx b/web/src/components/AppShell.test.tsx
+index 9417bc1..25eff52 100644
+--- a/web/src/components/AppShell.test.tsx
++++ b/web/src/components/AppShell.test.tsx
+@@ -72,30 +72,31 @@ describe('AppShell', () => {
+ 
+   it('falls back to My alerts when the active Admin tab disappears after switching to a non-admin', async () => {
+     renderShell(1)
+     const admin = await screen.findByRole('tab', { name: 'Admin' })
+     fireEvent.mouseDown(admin)
+     fireEvent.click(admin)
+     expect(await screen.findByRole('button', { name: 'Inject event' })).toBeTruthy()
+ 
+     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+     fireEvent.click((await screen.findAllByRole('option'))[1])
++    expect(await screen.findByText(/DE/)).toBeTruthy()
+     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Admin' })).toBeNull())
+-    expect((await screen.findByRole('tab', { name: 'My alerts' })).getAttribute('aria-selected')).toBe('true')
++    await waitFor(() => expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true'))
+     expect(await screen.findByText('No rules yet.')).toBeTruthy()
+ 
+     // switching back to the admin must not resurrect the Admin tab
+     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+     fireEvent.click((await screen.findAllByRole('option'))[0])
+     await screen.findByRole('tab', { name: 'Admin' })
+-    expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true')
+-    expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false')
++    await waitFor(() => expect(screen.getByRole('tab', { name: 'My alerts' }).getAttribute('aria-selected')).toBe('true'))
++    await waitFor(() => expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('false'))
+   })
+ 
+   it('keeps the Admin tab when switching from one admin to another while /me reloads', async () => {
+     renderShell(1)
+     const admin = await screen.findByRole('tab', { name: 'Admin' })
+     fireEvent.mouseDown(admin)
+     fireEvent.click(admin)
+     await screen.findByRole('button', { name: 'Inject event' })
+ 
+     fireEvent.pointerDown(screen.getByRole('combobox'), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+diff --git a/web/src/components/AppShell.tsx b/web/src/components/AppShell.tsx
+index 465c515..8cf22c0 100644
+--- a/web/src/components/AppShell.tsx
++++ b/web/src/components/AppShell.tsx
+@@ -1,73 +1,80 @@
+-import { useState } from 'react'
+-import { useGetMeQuery } from '@/api'
+-import UserSwitcher from '@/components/UserSwitcher'
+-import AdminLayout from '@/pages/admin/AdminLayout'
+-import Channels from '@/pages/Channels'
+-import History from '@/pages/History'
+-import Rules from '@/pages/Rules'
+-import { Badge } from '@/components/ui/badge'
+-import { Button } from '@/components/ui/button'
+-import { Toaster } from '@/components/ui/sonner'
+-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
++import { useState } from "react";
++import { useGetMeQuery } from "@/api";
++import UserSwitcher from "@/components/UserSwitcher";
++import AdminLayout from "@/pages/admin/AdminLayout";
++import Channels from "@/pages/Channels";
++import History from "@/pages/History";
++import Rules from "@/pages/Rules";
++import { Badge } from "@/components/ui/badge";
++import { Button } from "@/components/ui/button";
++import { Toaster } from "@/components/ui/sonner";
++import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+ 
+ const tabs = [
+-  { value: 'alerts', label: 'My alerts', content: <Rules /> },
+-  { value: 'channels', label: 'Channels', content: <Channels /> },
+-  { value: 'history', label: 'History', content: <History /> },
+-]
+-const adminTab = { value: 'admin', label: 'Admin', content: <AdminLayout /> }
++  { value: "alerts", label: "My alerts", content: <Rules /> },
++  { value: "channels", label: "Channels", content: <Channels /> },
++  { value: "history", label: "History", content: <History /> },
++];
++const adminTab = { value: "admin", label: "Admin", content: <AdminLayout /> };
+ 
+ export default function AppShell() {
+-  const { data: me, error, refetch } = useGetMeQuery()
+-  const [tab, setTab] = useState('alerts')
+-  const visible = me?.isAdmin ? [...tabs, adminTab] : tabs
++  const { data: me, error, refetch } = useGetMeQuery();
++  const [tab, setTab] = useState("alerts");
++  const visible = me?.isAdmin ? [...tabs, adminTab] : tabs;
+   // Admin tab vanishes on switch to non-admin; while `me` reloads (undefined) keep the tab so admin->admin switches don't lose it
+-  const active = !me || visible.some((t) => t.value === tab) ? tab : 'alerts'
+-  if (active !== tab) setTab(active) // forget the vanished tab so switching back to an admin doesn't resurrect it
++  const active = !me || visible.some((t) => t.value === tab) ? tab : "alerts";
++  if (active !== tab) setTab(active); // forget the vanished tab so switching back to an admin doesn't resurrect it
+ 
+-  let status = <span className="text-muted-foreground">Connecting…</span>
++  let status = <span className="text-muted-foreground">Connecting…</span>;
+   if (me) {
+     status = (
+       <span>
+         {me.name} ({me.homeCountry}) {me.isAdmin && <Badge>admin</Badge>}
+       </span>
+-    )
++    );
+   } else if (error) {
+-    const reason = 'status' in error ? `HTTP ${error.status}` : (error.message ?? 'unknown error')
++    const reason =
++      "status" in error
++        ? `HTTP ${error.status}`
++        : (error.message ?? "unknown error");
+     status = (
+       <span className="flex items-center gap-2 text-destructive">
+         API not reachable: {reason}
+         <Button size="sm" variant="outline" onClick={() => refetch()}>
+           Retry
+         </Button>
+       </span>
+-    )
++    );
+   }
+ 
+   return (
+     <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 p-4">
+       <header className="flex flex-wrap items-center justify-between gap-2">
+         <h1 className="text-xl font-semibold">World Alerts</h1>
+         <div className="flex items-center gap-3">
+           {status}
+           <UserSwitcher />
+         </div>
+       </header>
+-      <Tabs value={active} onValueChange={setTab}>
+-        <TabsList>
++      {!me ? (
++        <p className="text-muted-foreground">Loading…</p> // no tabs while `me` (re)loads: avoids a selected-less, blank panel
++      ) : (
++        <Tabs value={active} onValueChange={setTab}>
++          <TabsList>
++            {visible.map((t) => (
++              <TabsTrigger key={t.value} value={t.value}>
++                {t.label}
++              </TabsTrigger>
++            ))}
++          </TabsList>
+           {visible.map((t) => (
+-            <TabsTrigger key={t.value} value={t.value}>
+-              {t.label}
+-            </TabsTrigger>
++            <TabsContent key={t.value} value={t.value}>
++              {t.content}
++            </TabsContent>
+           ))}
+-        </TabsList>
+-        {visible.map((t) => (
+-          <TabsContent key={t.value} value={t.value}>
+-            {t.content}
+-          </TabsContent>
+-        ))}
+-      </Tabs>
++        </Tabs>
++      )}
+       <Toaster />
+     </div>
+-  )
++  );
+ }
