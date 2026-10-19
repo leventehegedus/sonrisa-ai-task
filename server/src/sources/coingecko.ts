@@ -29,9 +29,11 @@ export const coingecko: SourceAdapter<CoingeckoConfig> = {
       const q = parsed.data[coin];
       if (!q || Math.abs(q.usd_24h_change) < config.minChangePct) continue;
       const pct = q.usd_24h_change;
+      const abs = Math.abs(pct);
+      const band = abs >= 6 ? 6 : abs >= 4 ? 4 : 3; // escalation bands: a bigger move the same day is a new event
       events.push({
         source: 'coingecko',
-        externalId: `${coin}:${day}`,
+        externalId: `${coin}:${day}:${band}`,
         category: 'market',
         title: `${coin[0]!.toUpperCase()}${coin.slice(1)} ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% in 24h`,
         summary: `Price: $${q.usd}`,

@@ -45,7 +45,8 @@ async function fetchAndIngest(db: Database, row: any, deps: { fetchImpl: typeof 
   if (!res.ok) throw new Error(`HTTP ${res.status}`); // body deliberately not read into the error
   const body = await res.text();
   // normalize throws before ingest on a bad body, and ingest is one transaction: no partial events.
-  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now()).inserted.length;
+  // First poll of a source is a baseline: store what the feed already has, alert only on later items.
+  return ingest(db, adapter.normalize(body, config, deps.now()), deps.now(), { createDeliveries: row.last_polled_at !== null }).inserted.length;
 }
 
 const message = (err: unknown): string => String((err as Error)?.message ?? err).slice(0, MAX_ERROR_LEN);

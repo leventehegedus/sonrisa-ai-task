@@ -3,7 +3,9 @@ import { evaluate } from '../matching';
 import { rowToEvent, rowToRule, rowToUser } from '../db/rows';
 import type { EventRow, NewEvent } from '../types';
 
-export function ingest(db: Database, events: NewEvent[], now: Date): { inserted: EventRow[]; deliveriesCreated: number } {
+const MAX_EVENT_AGE_MS = 24 * 3600_000;
+
+export function ingest(db: Database, events: NewEvent[], now: Date, opts: { createDeliveries?: boolean } = {}): { inserted: EventRow[]; deliveriesCreated: number } {
   const insertEvent = db.prepare(
     `INSERT OR IGNORE INTO events (source, external_id, category, title, summary, url, country, scope, severity, occurred_at, raw)
      VALUES (@source, @externalId, @category, @title, @summary, @url, @country, @scope, @severity, @occurredAt, @raw)
@@ -20,6 +22,7 @@ export function ingest(db: Database, events: NewEvent[], now: Date): { inserted:
     const users = new Map(db.prepare(`SELECT * FROM users`).all().map((r) => [(r as any).id as number, rowToUser(r)]));
     const rules = db.prepare(`SELECT * FROM rules WHERE enabled = 1`).all().map(rowToRule);
     const ts = now.toISOString();
+    const cutoff = now.getTime() - MAX_EVENT_AGE_MS;
     const inserted: EventRow[] = [];
     let deliveriesCreated = 0;
     for (const e of events) {
@@ -27,6 +30,7 @@ export function ingest(db: Database, events: NewEvent[], now: Date): { inserted:
       if (!row) continue;
       const event = rowToEvent(row);
       inserted.push(event);
+      if (opts.createDeliveries === false || Date.parse(event.occurredAt) < cutoff) continue; // stored, never alerted (§7 backfill guard)
       for (const rule of rules) {
         const user = users.get(rule.userId);
         const b = user && evaluate(rule, user, event);

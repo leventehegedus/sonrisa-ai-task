@@ -8,6 +8,7 @@ import type { ChannelAdapter } from '../src/channels';
 import { addChannel, addRule, addUser, makeDb } from './helpers';
 
 const gdacsXml = readFileSync(new URL('./fixtures/gdacs.xml', import.meta.url), 'utf8');
+const telexXml = readFileSync(new URL('./fixtures/telex.xml', import.meta.url), 'utf8');
 const t0 = new Date('2026-10-19T12:00:00Z');
 const now = () => t0;
 type Db = ReturnType<typeof makeDb>;
@@ -124,6 +125,29 @@ function fakeRegistry() {
   return { sent, registry: { email: adapter } as Record<string, ChannelAdapter<any>> };
 }
 
+describe('pollSource backfill baseline', () => {
+  const hu = (db: Db) => { const u = addUser(db); addRule(db, u, { channelIds: [addChannel(db, u)] }); };
+  const deliveryCount = (db: Db) => (db.prepare(`SELECT COUNT(*) AS n FROM deliveries`).get() as any).n as number;
+
+  it('first poll (last_polled_at NULL) stores events but creates no deliveries', async () => {
+    const db = makeDb();
+    hu(db);
+    const id = addSource(db, { type: 'rss', config: rssConfig });
+    const f = stubFetch(() => new Response(telexXml));
+    expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
+    expect(deliveryCount(db)).toBe(0);
+  });
+
+  it('a later poll (last_polled_at set) creates deliveries for new events', async () => {
+    const db = makeDb();
+    hu(db);
+    const id = addSource(db, { type: 'rss', config: rssConfig, lastPolledAt: new Date(t0.getTime() - 300_000).toISOString() });
+    const f = stubFetch(() => new Response(telexXml));
+    expect(await pollSource(db, id, { fetchImpl: f.fetchImpl, now })).toEqual({ ok: true, inserted: 50 });
+    expect(deliveryCount(db)).toBe(50); // HU news, base severity 0.5 × home 1.0 = threshold
+  });
+});
+
 describe('runTick', () => {
   afterEach(() => { vi.useRealTimers(); });
 
@@ -203,5 +227,21 @@ describe('startScheduler', () => {
     s.stop();
     await vi.advanceTimersByTimeAsync(600_000);
     expect(f.calls).toHaveLength(2);
+  });
+
+  it('a throwing log never becomes an unhandled rejection', async () => {
+    const db = makeDb();
+    addSource(db, { type: 'twitter' }); // fails every poll → log is called
+    const rejections: unknown[] = [];
+    const onRejection = (r: unknown) => { rejections.push(r); };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const s = startScheduler(db, { fetchImpl: stubFetch(() => new Response('')).fetchImpl, registry: fakeRegistry().registry, now, log: () => { throw new Error('log down'); } });
+      await new Promise((r) => setTimeout(r, 20));
+      s.stop();
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+    expect(rejections).toEqual([]);
   });
 });

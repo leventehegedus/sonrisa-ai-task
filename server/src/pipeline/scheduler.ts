@@ -39,8 +39,10 @@ export function startScheduler(db: Database, deps: SchedulerDeps): { stop(): voi
     running = true;
     try { await runTick(db, deps); } finally { running = false; }
   };
-  void tick();
-  const timer = setInterval(tick, TICK_MS);
+  // runTick only rejects if deps.log itself throws; swallow it so it can't become an unhandled rejection (process exit).
+  const safeTick = () => { tick().catch(() => {}); };
+  safeTick();
+  const timer = setInterval(safeTick, TICK_MS);
   timer.unref();
   return { stop: () => clearInterval(timer) };
 }

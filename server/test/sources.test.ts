@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { sourceAdapters } from '../src/sources';
 import { manualEvent, ManualEventInput } from '../src/sources/manual';
+import { ingest } from '../src/pipeline/ingest';
+import { addChannel, addRule, addUser, makeDb } from './helpers';
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 const now = new Date('2026-10-19T18:00:00Z');
@@ -150,12 +152,42 @@ describe('coingecko', () => {
     const events = coingecko.normalize(body, cfg, now);
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({
-      source: 'coingecko', category: 'market', severity: 1.0, scope: 'global', country: null, externalId: 'bitcoin:2026-10-19',
+      source: 'coingecko', category: 'market', severity: 1.0, scope: 'global', country: null, externalId: 'bitcoin:2026-10-19:6',
     });
     expect(events[0]!.title).toContain('-6.0%');
     expect(events[1]!.severity).toBeCloseTo(4 / 6, 9);
     expect(events[1]!.title).toContain('+4.0%');
-    expect(events[1]!.externalId).toBe('ethereum:2026-10-19');
+    expect(events[1]!.externalId).toBe('ethereum:2026-10-19:4');
+  });
+});
+
+describe('coingecko escalation bands', () => {
+  const cfg = coingecko.configSchema.parse({ coins: ['bitcoin'] });
+  const at = (change: number) => coingecko.normalize(JSON.stringify({ bitcoin: { usd: 1, usd_24h_change: change } }), cfg, now);
+
+  it.each([
+    [3, ':3'], [-3.1, ':3'], [3.99, ':3'], [4, ':4'], [-5.9, ':4'], [6, ':6'], [-8, ':6'],
+  ])('change %s → band %s', (change, band) => {
+    const [e] = at(change);
+    expect(e!.externalId).toBe(`bitcoin:2026-10-19${band}`);
+    expect(e!.severity).toBeCloseTo(Math.min(1, Math.abs(change) / 6), 9);
+  });
+
+  it('2.99% → no event', () => expect(at(2.99)).toHaveLength(0));
+
+  it('-3.1% then -8% the same UTC day → two events; the second alerts a HU user at the default threshold', () => {
+    const db = makeDb();
+    const user = addUser(db, { homeCountry: 'HU' });
+    addRule(db, user, { channelIds: [addChannel(db, user)] });
+    const first = ingest(db, at(-3.1), now);
+    expect(first.inserted).toHaveLength(1);
+    expect(first.deliveriesCreated).toBe(0);
+    const second = ingest(db, at(-8), now);
+    expect(second.inserted).toHaveLength(1);
+    expect(second.inserted[0]!.externalId).toBe('bitcoin:2026-10-19:6');
+    expect(second.deliveriesCreated).toBe(1);
+    // a re-poll in the same band is deduped
+    expect(ingest(db, at(-7), now).inserted).toHaveLength(0);
   });
 });
 

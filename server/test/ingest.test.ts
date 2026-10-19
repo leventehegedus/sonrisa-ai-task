@@ -84,4 +84,23 @@ describe('ingest', () => {
     ingest(db, [ev()], now);
     expect(deliveries(db)).toHaveLength(0);
   });
+
+  it('createDeliveries: false stores the event but creates no delivery (first-poll baseline)', () => {
+    const { db } = setup();
+    const r = ingest(db, [ev()], now, { createDeliveries: false });
+    expect(r.inserted).toHaveLength(1);
+    expect(r.deliveriesCreated).toBe(0);
+    expect(deliveries(db)).toHaveLength(0);
+  });
+
+  it('an event older than 24h is stored but creates no delivery; one just inside 24h does', () => {
+    const { db } = setup();
+    const r = ingest(db, [
+      ev({ externalId: 'old', occurredAt: '2026-10-18T11:59:59Z' }),
+      ev({ externalId: 'recent', occurredAt: '2026-10-18T12:00:01Z' }),
+    ], now);
+    expect(r.inserted).toHaveLength(2);
+    expect(r.deliveriesCreated).toBe(1);
+    expect(deliveries(db).map((d) => d.event_id)).toEqual([r.inserted[1].id]);
+  });
 });
