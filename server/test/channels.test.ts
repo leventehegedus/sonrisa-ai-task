@@ -37,6 +37,10 @@ describe('email', () => {
     const f = fs.readdirSync(path.join(dir, 'outbox'))[0];
     expect(fs.readFileSync(path.join(dir, 'outbox', f), 'utf8')).toContain('alerts@world-alerts.local');
   });
+  it('treats an empty smtpUrl as unset and writes to the outbox', async () => {
+    await reg({ smtpUrl: '' }).email.send({ to: 'a@x.io' }, msg);
+    expect(fs.readdirSync(path.join(dir, 'outbox'))).toHaveLength(1);
+  });
   it('schema rejects a/../b@x.io', () => {
     expect(reg().email.configSchema.safeParse({ to: 'a/../b@x.io' }).success).toBe(false);
   });

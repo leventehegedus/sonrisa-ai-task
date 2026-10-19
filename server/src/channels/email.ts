@@ -15,7 +15,7 @@ export function emailAdapter(opts: EmailOpts): ChannelAdapter<{ to: string }> {
     configSchema,
     maskConfig: (config) => config,
     async send(config, msg) {
-      const transport = nodemailer.createTransport(opts.smtpUrl ?? { jsonTransport: true });
+      const transport = nodemailer.createTransport(opts.smtpUrl || { jsonTransport: true });
       const subject = `[World Alerts] ${msg.title}`;
       const info = await transport.sendMail({
         from: opts.from ?? 'World Alerts <alerts@world-alerts.local>',
