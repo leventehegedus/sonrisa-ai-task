@@ -39,4 +39,5 @@ Every prompt given to the AI agent during this project is logged here, verbatim,
 | 018 | [Cheaper models for subagents](018-cheaper-models-for-subagents.md) | `1e51556` |
 | 019 | [What to test now; what the web UI shows](019-what-to-test-in-web-ui.md) | `f52ea7e` |
 | 020 | [Continue Task 11, subtasks, then the rest](020-continue-task-11-and-rest.md) | `185d82d` … `e480c46` |
-| 021 | [Check and drop the two stashes](021-check-and-drop-stashes.md) | _pending_ |
+| 021 | [Check and drop the two stashes](021-check-and-drop-stashes.md) | `9b0c265` |
+| 022 | [Testing walkthrough + requirements checklist](022-testing-walkthrough-and-checklist.md) | _pending_ |
