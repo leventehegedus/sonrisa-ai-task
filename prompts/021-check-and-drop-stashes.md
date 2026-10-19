@@ -19,4 +19,4 @@ sorry, I interrupted, try again
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`9b0c265` (merge of `docs/stash-cleanup`)

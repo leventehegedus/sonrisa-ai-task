@@ -1,5 +1,7 @@
 # How to Test the Current State (after M2)
 
+> **The web UI is done now.** For the browser walkthrough and the requirements checklist, see [`testing-walkthrough.md`](testing-walkthrough.md). This page stays as the curl/API-level guide.
+
 **What exists:** the core engine (M1) and the HTTP API (M2), both merged to `main`. **No web UI yet** (M3). For now you test through the automated tests and `curl`.
 
 All commands run from the repo root. Requires Node 24.
