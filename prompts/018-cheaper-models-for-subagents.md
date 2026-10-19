@@ -26,4 +26,4 @@ from now on pls rethink about the subagent and agent working method also, I want
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`1e51556` — docs: subagent model policy (D-024) in CLAUDE.md, log prompt 018
