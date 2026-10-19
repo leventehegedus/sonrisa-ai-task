@@ -21,4 +21,4 @@ check for slack pls, help me step by step what to do
 
 ## Commit
 
-_pending — backfilled in the next commit_
+`60b6695` (merge of `docs/prompt-026`)
