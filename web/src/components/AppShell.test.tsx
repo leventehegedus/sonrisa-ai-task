@@ -105,6 +105,19 @@ describe('AppShell', () => {
     expect(screen.getByRole('tab', { name: 'Admin' }).getAttribute('aria-selected')).toBe('true')
   })
 
+  it('shows an error instead of "Loading…" when /me fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } })))
+    const store = makeStore()
+    store.dispatch(setUser(1))
+    render(
+      <Provider store={store}>
+        <AppShell />
+      </Provider>,
+    )
+    expect(await screen.findByText('Could not load your session.')).toBeTruthy()
+    expect(screen.queryByText('Loading…')).toBeNull()
+  })
+
   it('shows the placeholder in the user switcher until users load, then the selected name', async () => {
     renderShell(2)
     expect(screen.getByRole('combobox').textContent).toBe('Select user')
