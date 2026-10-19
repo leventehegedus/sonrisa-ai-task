@@ -35,9 +35,21 @@ Emails are written as JSON files to `data/outbox/` unless `SMTP_URL` is set. Adm
 | `PORT` | `3000` | API port |
 | `DB_PATH` | `data/alerts.db` | SQLite file |
 | `SMTP_URL` | unset | e.g. `smtp://user:pass@host:587`; unset = write emails to `data/outbox/` |
+| `SMTP_FROM` | `World Alerts <alerts@world-alerts.local>` | From address of alert emails; strict providers need a verified sender |
 | `SLACK_DRY_RUN` | `1` | `0` = really post to Slack; otherwise Slack messages are only logged |
 | `SEED_SLACK_WEBHOOK` | unset | gives Bence (user 2) a Slack channel with this webhook (fresh DB only) |
 | `API_TARGET` | `http://localhost:3000` | web dev server: where `/api` is proxied |
+
+Variables can also go in a repo-root `.env` (git-ignored; copy `.env.example`). Real environment variables win over `.env`.
+
+### Real email (Gmail)
+
+1. In your Google account (2-step verification on), create an App password.
+2. `cp .env.example .env`, then fill `SMTP_URL` (`smtps://you%40gmail.com:APP_PASSWORD@smtp.gmail.com:465`, `@` in the address as `%40`) and `SMTP_FROM`.
+3. `npm run dev`.
+4. In the UI add an email channel with your address and press **Send test**.
+
+Gmail rewrites the From header to the authenticated account, so `SMTP_FROM` only shows through on providers that allow it.
 
 ## Commands
 

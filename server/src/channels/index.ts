@@ -20,9 +20,9 @@ export function scrubSecrets(text: string, config: unknown): string {
   return out;
 }
 
-export function createChannelRegistry(opts: { smtpUrl?: string; outboxDir: string; slackDryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }): Record<'email' | 'slack', ChannelAdapter<any>> {
+export function createChannelRegistry(opts: { smtpUrl?: string; from?: string; outboxDir: string; slackDryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }): Record<'email' | 'slack', ChannelAdapter<any>> {
   return {
-    email: emailAdapter({ smtpUrl: opts.smtpUrl, outboxDir: opts.outboxDir, log: opts.log }),
+    email: emailAdapter({ smtpUrl: opts.smtpUrl, from: opts.from, outboxDir: opts.outboxDir, log: opts.log }),
     slack: slackAdapter({ dryRun: opts.slackDryRun, fetchImpl: opts.fetchImpl, log: opts.log }),
   };
 }
