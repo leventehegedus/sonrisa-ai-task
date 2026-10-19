@@ -25,6 +25,22 @@ describe('email', () => {
     expect(body).toContain('because');
     expect(body).toContain('https://example.com/a');
   });
+  it('uses SMTP_FROM as the sender when given', async () => {
+    await reg({ from: 'Ops <ops@test.local>' }).email.send({ to: 'a@x.io' }, msg);
+    const f = fs.readdirSync(path.join(dir, 'outbox'))[0];
+    const body = fs.readFileSync(path.join(dir, 'outbox', f), 'utf8');
+    expect(body).toContain('ops@test.local');
+    expect(body).not.toContain('world-alerts.local');
+  });
+  it('defaults the sender to alerts@world-alerts.local', async () => {
+    await reg().email.send({ to: 'a@x.io' }, msg);
+    const f = fs.readdirSync(path.join(dir, 'outbox'))[0];
+    expect(fs.readFileSync(path.join(dir, 'outbox', f), 'utf8')).toContain('alerts@world-alerts.local');
+  });
+  it('treats an empty smtpUrl as unset and writes to the outbox', async () => {
+    await reg({ smtpUrl: '' }).email.send({ to: 'a@x.io' }, msg);
+    expect(fs.readdirSync(path.join(dir, 'outbox'))).toHaveLength(1);
+  });
   it('schema rejects a/../b@x.io', () => {
     expect(reg().email.configSchema.safeParse({ to: 'a/../b@x.io' }).success).toBe(false);
   });

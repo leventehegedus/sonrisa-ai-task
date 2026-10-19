@@ -1,0 +1,257 @@
+# Review package: b4ca357..HEAD
+
+## Commits
+bd969ae feat(server): SMTP_FROM and .env support for real email
+
+## Files changed
+ .env.example                         |  7 +++++++
+ .gitignore                           |  1 +
+ README.md                            | 12 ++++++++++++
+ docs/evidence/smtp-ethereal-check.md | 26 ++++++++++++++++++++++++++
+ server/src/channels/email.ts         |  4 ++--
+ server/src/channels/index.ts         |  4 ++--
+ server/src/main.ts                   | 11 ++++++++---
+ server/test/channels.test.ts         | 12 ++++++++++++
+ 8 files changed, 70 insertions(+), 7 deletions(-)
+
+## Diff
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..438e95e
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,7 @@
++# Copy to .env (git-ignored). Real environment variables override this file.
++# SMTP_URL=smtps://you%40gmail.com:APP_PASSWORD@smtp.gmail.com:465
++# SMTP_FROM=World Alerts <you@gmail.com>
++# SLACK_DRY_RUN=1
++# SEED_SLACK_WEBHOOK=
++# PORT=3000
++# DB_PATH=
+diff --git a/.gitignore b/.gitignore
+index efa2496..827760a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,6 +1,7 @@
+ node_modules
+ data/
++.env
+ web/dist
+ test-results/
+ playwright-report/
+ .playwright-mcp/
+diff --git a/README.md b/README.md
+index c810411..ed530a3 100644
+--- a/README.md
++++ b/README.md
+@@ -28,24 +28,36 @@ Emails are written as JSON files to `data/outbox/` unless `SMTP_URL` is set. Adm
+ - A rule fires if `importance >= threshold` (default 0.5) and its category and keywords match.
+ - The breakdown is stored on each delivery and shown in the UI. Full table: design spec section 8.
+ 
+ ## Environment variables
+ 
+ | Variable | Default | Meaning |
+ |---|---|---|
+ | `PORT` | `3000` | API port |
+ | `DB_PATH` | `data/alerts.db` | SQLite file |
+ | `SMTP_URL` | unset | e.g. `smtp://user:pass@host:587`; unset = write emails to `data/outbox/` |
++| `SMTP_FROM` | `World Alerts <alerts@world-alerts.local>` | From address of alert emails; strict providers need a verified sender |
+ | `SLACK_DRY_RUN` | `1` | `0` = really post to Slack; otherwise Slack messages are only logged |
+ | `SEED_SLACK_WEBHOOK` | unset | gives Bence (user 2) a Slack channel with this webhook (fresh DB only) |
+ | `API_TARGET` | `http://localhost:3000` | web dev server: where `/api` is proxied |
+ 
++Variables can also go in a repo-root `.env` (git-ignored; copy `.env.example`). Real environment variables win over `.env`.
++
++### Real email (Gmail)
++
++1. In your Google account (2-step verification on), create an App password.
++2. `cp .env.example .env`, then fill `SMTP_URL` (`smtps://you%40gmail.com:APP_PASSWORD@smtp.gmail.com:465`, `@` in the address as `%40`) and `SMTP_FROM`.
++3. `npm run dev`.
++4. In the UI add an email channel with your address and press **Send test**.
++
++Gmail rewrites the From header to the authenticated account, so `SMTP_FROM` only shows through on providers that allow it.
++
+ ## Commands
+ 
+ ```bash
+ npm test                  # server + web unit/integration tests
+ npm run typecheck         # server typecheck
+ npm run build -w web      # type-check and build the web app
+ npm run e2e               # Playwright walkthrough on an isolated stack (:3002 / :5175), rewrites docs/evidence/screenshots/e2e/
+ ```
+ 
+ ## Architecture
+diff --git a/docs/evidence/smtp-ethereal-check.md b/docs/evidence/smtp-ethereal-check.md
+new file mode 100644
+index 0000000..3db5e28
+--- /dev/null
++++ b/docs/evidence/smtp-ethereal-check.md
+@@ -0,0 +1,26 @@
++# Real SMTP check against Ethereal (2026-10-20)
++
++Throwaway Ethereal account from nodemailer `createTestAccount()`; password redacted. The user's :3000/:5173 instance and `data/alerts.db` were not touched.
++
++```
++$ node acct.mjs   # createTestAccount() -> SMTP URL
++{"url":"smtp://sxog73laqbcsagss%40ethereal.email:***REDACTED***@smtp.ethereal.email:587", ...}
++
++$ PORT=3003 DB_PATH=$(mktemp -d)/s.db SMTP_URL=<ethereal url> SMTP_FROM='World Alerts <alerts@test.local>' npx tsx server/src/main.ts
++[2026-10-19T23:11:56.222Z] World Alerts API on http://127.0.0.1:3003
++
++$ curl -s -XPOST localhost:3003/api/channels -H 'X-User-Id: 2' -H 'content-type: application/json' -d '{"type":"email","config":{"to":"someone@example.com"}}'
++{"id":4,"type":"email","config":{"to":"someone@example.com"},"enabled":true}
++
++$ curl -s -XPOST localhost:3003/api/channels/4/test -H 'X-User-Id: 2'
++{"ok":true}
++```
++
++`emailAdapter` does not return the send info, so the preview URL comes from a one-off script (kept in the scratch dir, not committed). It uses the same Ethereal transport and the same From (`World Alerts <alerts@test.local>`):
++
++```
++response: 250 Accepted [STATUS=new MSGID=atajtOO.J4b7VHftatajxcAYPlgYjkbQAAAAAig0Fr4Hmm.ltrj-06mVwDM]
++preview: https://ethereal.email/message/atajtOO.J4b7VHftatajxcAYPlgYjkbQAAAAAig0Fr4Hmm.ltrj-06mVwDM
++```
++
++Cleanup: API process stopped; `lsof -iTCP:3003 -sTCP:LISTEN` prints nothing.
+diff --git a/server/src/channels/email.ts b/server/src/channels/email.ts
+index 2cd9252..5f2f4ea 100644
+--- a/server/src/channels/email.ts
++++ b/server/src/channels/email.ts
+@@ -1,31 +1,31 @@
+ import fs from 'node:fs';
+ import path from 'node:path';
+ import { randomUUID } from 'node:crypto';
+ import nodemailer from 'nodemailer';
+ import { z } from 'zod';
+ import type { ChannelAdapter } from './index';
+ 
+-export interface EmailOpts { smtpUrl?: string; outboxDir: string; log: (msg: string) => void }
++export interface EmailOpts { smtpUrl?: string; from?: string; outboxDir: string; log: (msg: string) => void }
+ export const sanitizeTo = (to: string) => to.replace(/[^A-Za-z0-9@._-]/g, '_');
+ const configSchema = z.object({ to: z.email() });
+ 
+ export function emailAdapter(opts: EmailOpts): ChannelAdapter<{ to: string }> {
+   return {
+     type: 'email',
+     configSchema,
+     maskConfig: (config) => config,
+     async send(config, msg) {
+       const transport = nodemailer.createTransport(opts.smtpUrl ?? { jsonTransport: true });
+       const subject = `[World Alerts] ${msg.title}`;
+       const info = await transport.sendMail({
+-        from: 'World Alerts <alerts@world-alerts.local>',
++        from: opts.from ?? 'World Alerts <alerts@world-alerts.local>',
+         to: config.to,
+         subject,
+         text: [msg.summary, msg.url, msg.reason].filter(Boolean).join('\n'),
+       });
+       if (!opts.smtpUrl) {
+         fs.mkdirSync(opts.outboxDir, { recursive: true });
+         const name = `${Date.now()}-${randomUUID().slice(0, 8)}-${sanitizeTo(config.to)}.json`;
+         fs.writeFileSync(path.join(opts.outboxDir, name), String(info.message), { flag: 'wx' });
+         opts.log(`email (outbox) to=${config.to} subject=${subject} file=${name}`);
+       }
+diff --git a/server/src/channels/index.ts b/server/src/channels/index.ts
+index cf80fa3..d5afe4b 100644
+--- a/server/src/channels/index.ts
++++ b/server/src/channels/index.ts
+@@ -13,16 +13,16 @@ export interface ChannelAdapter<C> {
+   send(config: C, msg: AlertMessage): Promise<void>;
+ }
+ 
+ export function scrubSecrets(text: string, config: unknown): string {
+   if (typeof config !== 'object' || config === null) return text;
+   let out = text;
+   for (const v of Object.values(config)) if (typeof v === 'string' && v.length > 8) out = out.split(v).join('***');
+   return out;
+ }
+ 
+-export function createChannelRegistry(opts: { smtpUrl?: string; outboxDir: string; slackDryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }): Record<'email' | 'slack', ChannelAdapter<any>> {
++export function createChannelRegistry(opts: { smtpUrl?: string; from?: string; outboxDir: string; slackDryRun: boolean; fetchImpl?: typeof fetch; log: (msg: string) => void }): Record<'email' | 'slack', ChannelAdapter<any>> {
+   return {
+-    email: emailAdapter({ smtpUrl: opts.smtpUrl, outboxDir: opts.outboxDir, log: opts.log }),
++    email: emailAdapter({ smtpUrl: opts.smtpUrl, from: opts.from, outboxDir: opts.outboxDir, log: opts.log }),
+     slack: slackAdapter({ dryRun: opts.slackDryRun, fetchImpl: opts.fetchImpl, log: opts.log }),
+   };
+ }
+diff --git a/server/src/main.ts b/server/src/main.ts
+index b3259b0..3a5ca5a 100644
+--- a/server/src/main.ts
++++ b/server/src/main.ts
+@@ -1,31 +1,36 @@
+-import { mkdirSync } from 'node:fs';
++import { existsSync, mkdirSync } from 'node:fs';
+ import { dirname } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { createChannelRegistry } from './channels';
+ import { openDb } from './db';
+ import { seed } from './db/seed';
+ import { buildApp } from './http/app';
+ import { startScheduler } from './pipeline/scheduler';
+ 
+-const port = Number(process.env.PORT ?? 3000);
++// repo-root .env, independent of cwd; loadEnvFile never overrides variables already set in the real environment
++const envFile = fileURLToPath(new URL('../../.env', import.meta.url));
++if (existsSync(envFile)) process.loadEnvFile(envFile);
++
++const port = Number(process.env.PORT || 3000);
+ const dataDir = fileURLToPath(new URL('../../data/', import.meta.url)); // repo-root data/, independent of cwd
+-const dbPath = process.env.DB_PATH ?? `${dataDir}alerts.db`;
++const dbPath = process.env.DB_PATH || `${dataDir}alerts.db`;
+ const log = (msg: string) => console.log(`[${new Date().toISOString()}] ${msg}`);
+ const now = () => new Date();
+ 
+ mkdirSync(dirname(dbPath), { recursive: true });
+ const db = openDb(dbPath);
+ seed(db, { slackWebhook: process.env.SEED_SLACK_WEBHOOK });
+ 
+ const registry = createChannelRegistry({
+   smtpUrl: process.env.SMTP_URL,
++  from: process.env.SMTP_FROM || undefined,
+   outboxDir: `${dataDir}outbox`,
+   slackDryRun: (process.env.SLACK_DRY_RUN ?? '1') !== '0',
+   log,
+ });
+ const app = buildApp(db, { registry, fetchImpl: fetch, now, log });
+ 
+ // shortcut: binds to localhost only because X-User-Id is not authentication; add real auth before exposing it
+ await app.listen({ port, host: '127.0.0.1' });
+ log(`World Alerts API on http://127.0.0.1:${port}`);
+ const scheduler = startScheduler(db, { registry, fetchImpl: fetch, now, log });
+diff --git a/server/test/channels.test.ts b/server/test/channels.test.ts
+index 3568ee8..d44ffd3 100644
+--- a/server/test/channels.test.ts
++++ b/server/test/channels.test.ts
+@@ -18,20 +18,32 @@ describe('email', () => {
+   it('writes one JSON file in outbox containing the title', async () => {
+     await reg().email.send({ to: 'a@x.io' }, msg);
+     const files = fs.readdirSync(path.join(dir, 'outbox'));
+     expect(files).toHaveLength(1);
+     expect(files[0]).toMatch(/-a@x\.io\.json$/);
+     const body = fs.readFileSync(path.join(dir, 'outbox', files[0]), 'utf8');
+     expect(body).toContain('[World Alerts] Flood in Hungary');
+     expect(body).toContain('because');
+     expect(body).toContain('https://example.com/a');
+   });
++  it('uses SMTP_FROM as the sender when given', async () => {
++    await reg({ from: 'Ops <ops@test.local>' }).email.send({ to: 'a@x.io' }, msg);
++    const f = fs.readdirSync(path.join(dir, 'outbox'))[0];
++    const body = fs.readFileSync(path.join(dir, 'outbox', f), 'utf8');
++    expect(body).toContain('ops@test.local');
++    expect(body).not.toContain('world-alerts.local');
++  });
++  it('defaults the sender to alerts@world-alerts.local', async () => {
++    await reg().email.send({ to: 'a@x.io' }, msg);
++    const f = fs.readdirSync(path.join(dir, 'outbox'))[0];
++    expect(fs.readFileSync(path.join(dir, 'outbox', f), 'utf8')).toContain('alerts@world-alerts.local');
++  });
+   it('schema rejects a/../b@x.io', () => {
+     expect(reg().email.configSchema.safeParse({ to: 'a/../b@x.io' }).success).toBe(false);
+   });
+   it('sanitizeTo yields the exact safe part for a traversal', () => {
+     expect(sanitizeTo('../../../x/evil')).toBe('.._.._.._x_evil');
+   });
+   it('send with a hostile to writes only inside outbox with sanitized name', async () => {
+     await reg().email.send({ to: '../../../x/evil' }, msg);
+     expect(fs.readdirSync(dir)).toEqual(['outbox']);
+     const [f] = fs.readdirSync(path.join(dir, 'outbox'));
